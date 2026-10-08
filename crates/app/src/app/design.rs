@@ -77,7 +77,7 @@ pub(super) fn apply_theme(context: &egui::Context, config: &Config) {
             (egui::TextStyle::Monospace, egui::FontId::monospace(13.0)),
         ]
         .into();
-        style.animation_time = 0.12;
+        style.animation_time = if config.reduce_motion { 0.0 } else { 0.12 };
         let v = &mut style.visuals;
         v.override_text_color = None;
         v.weak_text_color = Some(p.muted);

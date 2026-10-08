@@ -4,4 +4,11 @@
 /.oxide/
 PRD.md
 /docs/*
+!/docs/OXIDE_CODEBASE_REPORT.md
+!/docs/OXIDE_PRODUCT_REVIEW.md
+!/docs/OXIDE_UX_DESIGN_REVIEW.md
+!/docs/OXIDE_FEATURE_ROADMAP.md
+!/docs/OXIDE_ARCHITECTURE.md
 Project report/
+Prompt.md
+/.github/

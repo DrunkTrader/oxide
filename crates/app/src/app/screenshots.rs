@@ -193,6 +193,28 @@ impl App {
             {
                 self.select_shot(shot.id);
             }
+            if let Ok(query) = Query::parse(&self.query)
+                && let Some(texture) = self.textures.get(&(shot.id, false))
+            {
+                let matched = texture
+                    .lines
+                    .iter()
+                    .filter(|line| query.matches_line(&line.text))
+                    .take(2)
+                    .map(|line| line.text.as_str())
+                    .collect::<Vec<_>>()
+                    .join(" · ");
+                if !matched.is_empty() {
+                    ui.add(
+                        egui::Label::new(
+                            RichText::new(format!("Match: {matched}"))
+                                .size(11.0)
+                                .color(p.accent_text),
+                        )
+                        .truncate(),
+                    );
+                }
+            }
             ui.add_space(6.0);
             ui.horizontal(|ui| {
                 let filename = Path::new(&shot.path)
@@ -202,7 +224,7 @@ impl App {
                 ui.add(egui::Label::new(RichText::new(filename).size(12.0)).truncate());
                 let mut selected = self.selected_shots.contains(&shot.id);
                 if ui
-                    .checkbox(&mut selected, "")
+                    .checkbox(&mut selected, "Select")
                     .on_hover_text("Select screenshot for trash")
                     .changed()
                 {
@@ -213,21 +235,17 @@ impl App {
                     }
                 }
             });
-            caption(
-                ui,
-                if shot.available {
-                    match shot.ocr_state.as_str() {
-                        "ready" => "Text indexed",
-                        "pending" => "OCR pending",
-                        "no_text" => "No text found",
-                        "failed" => "OCR failed",
-                        "invalid" => "Invalid image",
-                        other => other,
-                    }
-                } else {
-                    "Original unavailable"
-                },
-            );
+            caption(ui, format!("Screenshot · {}", shot.status_label()));
+            if let Some(time) = chrono::DateTime::from_timestamp_millis(shot.captured_at) {
+                caption(
+                    ui,
+                    format!(
+                        "{} · {}",
+                        time.with_timezone(&chrono::Local).format("%b %-d, %H:%M"),
+                        shot.time_label()
+                    ),
+                );
+            }
             if !shot.available {
                 ui.colored_label(p.danger, "Original unavailable");
             }
@@ -266,11 +284,7 @@ impl App {
                                     .format("%Y-%m-%d %H:%M:%S"),
                                 shot.width,
                                 shot.height,
-                                match shot.time_source.as_str() {
-                                    "captured" => "Recorded capture time",
-                                    "modified" => "File modification time at import/recovery",
-                                    _ => "Legacy timestamp",
-                                }
+                                shot.time_label()
                             ),
                         );
                     }
@@ -311,23 +325,31 @@ impl App {
             });
         if !open {
             self.detail = None;
+            self.detail_data_id = None;
+            self.lines.clear();
+            self.linked.clear();
             self.selected_lines.clear();
         }
     }
 
     fn detail_actions(&mut self, ui: &mut egui::Ui, id: i64, context: &egui::Context) {
+        if self.detail_data_id != Some(id) {
+            caption(ui, "Loading screenshot details…");
+            return;
+        }
         ui.horizontal_wrapped(|ui| {
             if quiet(ui, "Copy all text").clicked() {
-                let text = self
+                let lines = self
                     .lines
                     .iter()
                     .map(|line| line.text.as_str())
-                    .collect::<Vec<_>>()
-                    .join("\n");
+                    .collect::<Vec<_>>();
+                let text = lines.join("\n");
                 if text.is_empty() {
                     self.notice = Some("No recognized text to copy".into());
                 } else {
                     context.copy_text(text);
+                    self.notice = Some(format!("Copied {} lines", lines.len()));
                 }
             }
             let selected = self
@@ -342,7 +364,9 @@ impl App {
                 if selected.is_empty() {
                     self.notice = Some("Select recognized lines first".into());
                 } else {
+                    let count = selected.lines().count();
                     context.copy_text(selected.clone());
+                    self.notice = Some(format!("Copied {count} selected lines"));
                 }
             }
             if quiet(ui, "Insert selected").clicked() {
@@ -386,6 +410,12 @@ impl App {
     }
 
     fn detail_image(&mut self, ui: &mut egui::Ui, id: i64) {
+        if self.detail_data_id != Some(id) {
+            let _ = self.picture(id, true);
+            ui.spinner();
+            caption(ui, "Loading screenshot details…");
+            return;
+        }
         if let Some((texture, size)) = self.picture(id, true) {
             let response = ui.add(
                 egui::Image::new((texture, size))

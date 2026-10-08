@@ -3,13 +3,17 @@ use std::{
     fs,
     path::{Path, PathBuf},
     sync::mpsc,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
     time::{Duration, Instant},
 };
 
 use anyhow::{Context, Result, bail};
 use notify::Watcher;
 use oxide_core::{
-    WorkerStatus,
+    SourceHealth, WorkerPhase, WorkerStatus,
     config::{Config, Paths, atomic_write},
     media, now,
     query::Query,
@@ -99,13 +103,18 @@ fn run() -> Result<()> {
     }
     fs::create_dir_all(&config.capture_directory)?;
     let mut status = WorkerStatus {
-        state: "Starting".into(),
+        state: WorkerPhase::Starting,
         ..Default::default()
     };
     let (tx, rx) = mpsc::sync_channel(32);
+    let overflow = Arc::new(AtomicBool::new(false));
+    let events_overflow = overflow.clone();
     let mut watcher = notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
         match tx.try_send(event) {
-            Ok(()) | Err(mpsc::TrySendError::Full(_)) => {}
+            Ok(()) => {}
+            Err(mpsc::TrySendError::Full(_)) => {
+                events_overflow.store(true, Ordering::Relaxed);
+            }
             Err(mpsc::TrySendError::Disconnected(_)) => {}
         }
     })?;
@@ -121,6 +130,20 @@ fn run() -> Result<()> {
     let mut rescan = Instant::now();
     let mut backfill_at = Instant::now() - Duration::from_secs(3);
     loop {
+        if overflow.swap(false, Ordering::Relaxed) {
+            scan = true;
+        }
+        let rescan_request = paths.data.join("rescan.request");
+        if rescan_request.is_file() {
+            match fs::remove_file(&rescan_request) {
+                Ok(()) => {
+                    scan = true;
+                    bootstrap_error = None;
+                    status.error = None;
+                }
+                Err(error) => status.error = Some(format!("Cannot acknowledge rescan: {error}")),
+            }
+        }
         if !once {
             match Config::load(&paths.config) {
                 Ok(Some(new)) => {
@@ -134,6 +157,7 @@ fn run() -> Result<()> {
                             match Reader::prepare(&paths.models(), new.threads, offline) {
                                 Ok(replacement) => {
                                     reader = Some(replacement);
+                                    reader_threads = new.threads;
                                 }
                                 Err(error) => {
                                     status.error = Some(format!(
@@ -143,8 +167,8 @@ fn run() -> Result<()> {
                             }
                         } else {
                             bootstrap_error = None;
+                            reader_threads = new.threads;
                         }
-                        reader_threads = new.threads;
                     }
                     if config.worker_paused && !new.worker_paused {
                         bootstrap_error = None;
@@ -172,15 +196,27 @@ fn run() -> Result<()> {
             }
             watched.remove(&root);
         }
+        status.sources.clear();
         for root in &roots {
+            let mut source = SourceHealth {
+                path: root.clone(),
+                available: root.is_dir(),
+                watched: watched.contains(root),
+                error: None,
+            };
             if root.is_dir() && !watched.contains(root) {
                 match watcher.watch(root, notify::RecursiveMode::Recursive) {
                     Ok(()) => {
                         watched.insert(root.clone());
+                        source.watched = true;
                     }
-                    Err(e) => status.error = Some(format!("Cannot watch folder: {e}")),
+                    Err(e) => source.error = Some(format!("Cannot watch folder: {e}")),
                 }
             }
+            if !source.available {
+                source.watched = false;
+            }
+            status.sources.push(source);
         }
         if scan
             || (rescan.elapsed() >= Duration::from_secs(30)
@@ -191,6 +227,7 @@ fn run() -> Result<()> {
             source_cursor = Some(0);
             scan = false;
             rescan = Instant::now();
+            status.state = WorkerPhase::Scanning;
         }
         for event in rx.try_iter() {
             match event {
@@ -281,7 +318,7 @@ fn run() -> Result<()> {
             }
         }
         if config.worker_paused {
-            status.state = "Paused".into();
+            status.state = WorkerPhase::Paused;
         } else if let Some(pending) = store.pending()? {
             let shot = match store.register_image(Path::new(&pending.path), pending.managed, None) {
                 Ok(shot) if shot.ocr_state != "invalid" => Some(shot),
@@ -290,12 +327,12 @@ fn run() -> Result<()> {
                     None
                 }
                 Err(error) => {
-                    store.ocr_failed(pending.id, &format!("{error:#}"))?;
+                    store.ocr_failed(&pending, &format!("{error:#}"))?;
                     None
                 }
             };
             if shot.is_some() && reader.is_none() && bootstrap_error.is_none() {
-                status.state = "Preparing local OCR models".into();
+                status.state = WorkerPhase::Preparing;
                 write_status(&paths, &mut status)?;
                 match Reader::prepare(&paths.models(), config.threads, offline) {
                     Ok(engine) => {
@@ -307,8 +344,9 @@ fn run() -> Result<()> {
                 }
             }
             if let (Some(reader), Some(shot)) = (&reader, &shot) {
-                status.state = "Recognizing screenshot".into();
+                status.state = WorkerPhase::Recognizing;
                 write_status(&paths, &mut status)?;
+                let started = Instant::now();
                 match media::load_image(Path::new(&shot.path)).and_then(|image| {
                     media::thumbnail(&paths, shot.id, &image, Path::new(&shot.path))?;
                     let lines = reader.read(&image)?;
@@ -317,14 +355,16 @@ fn run() -> Result<()> {
                 }) {
                     Ok(()) => {
                         status.indexed += 1;
+                        status.last_ocr_ms =
+                            Some(started.elapsed().as_millis().try_into().unwrap_or(u64::MAX));
                     }
                     Err(e) => {
-                        store.ocr_failed(shot.id, &format!("{e:#}"))?;
+                        store.ocr_failed(shot, &format!("{e:#}"))?;
                         status.error = Some(format!("Screenshot OCR failed: {e}"));
                     }
                 }
             } else if shot.is_some() {
-                status.state = "OCR unavailable".into();
+                status.state = WorkerPhase::OcrUnavailable;
                 status.error = bootstrap_error.clone();
             }
         }
@@ -348,7 +388,8 @@ fn run() -> Result<()> {
             && store.pending()?.is_none()
             && !config.worker_paused
         {
-            status.state = "Up to date".into();
+            status.state = WorkerPhase::Ready;
+            status.reconciled_at = Some(now());
         }
         if heartbeat.elapsed() >= Duration::from_secs(1) {
             write_status(&paths, &mut status)?;

@@ -3,7 +3,10 @@
 pub mod config;
 pub mod media;
 pub mod query;
+pub mod status;
 pub mod store;
+
+pub use status::{OcrState, SourceHealth, WorkerPhase};
 
 use serde::{Deserialize, Serialize};
 
@@ -41,6 +44,28 @@ pub struct Screenshot {
     pub updated_at: i64,
 }
 
+impl Screenshot {
+    pub fn processing_state(&self) -> OcrState {
+        OcrState::from_storage(&self.ocr_state)
+    }
+
+    pub fn status_label(&self) -> &'static str {
+        if self.available || self.processing_state() == OcrState::Trashed {
+            self.processing_state().label()
+        } else {
+            "Original unavailable"
+        }
+    }
+
+    pub fn time_label(&self) -> &'static str {
+        match self.time_source.as_str() {
+            "captured" => "Recorded capture time",
+            "modified" => "File modification time at import/recovery",
+            _ => "Legacy timestamp",
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Line {
     pub text: String,
@@ -75,9 +100,15 @@ pub fn now() -> i64 {
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct WorkerStatus {
-    pub state: String,
+    pub state: WorkerPhase,
     pub error: Option<String>,
     pub indexed: usize,
     pub backlog: usize,
     pub updated_at: i64,
+    #[serde(default)]
+    pub sources: Vec<SourceHealth>,
+    #[serde(default)]
+    pub reconciled_at: Option<i64>,
+    #[serde(default)]
+    pub last_ocr_ms: Option<u64>,
 }

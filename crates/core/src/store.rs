@@ -553,15 +553,17 @@ impl Store {
         Ok(true)
     }
 
-    pub fn ocr_failed(&mut self, id: i64, message: &str) -> Result<()> {
+    pub fn ocr_failed(&mut self, shot: &Screenshot, message: &str) -> Result<()> {
         let tx = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        tx.execute(
-            "UPDATE screenshots SET ocr_state='failed',ocr_error=?1,updated_at=max(updated_at+1,?2) WHERE id=?3 AND ocr_state NOT IN ('trashed','unwatched')",
-            params![message, now(), id],
+        let updated = tx.execute(
+            "UPDATE screenshots SET ocr_state='failed',ocr_error=?1,updated_at=max(updated_at+1,?2) WHERE id=?3 AND digest=?4 AND ocr_state NOT IN ('trashed','unwatched')",
+            params![message, now(), shot.id, shot.digest],
         )?;
-        changed(&tx)?;
+        if updated > 0 {
+            changed(&tx)?;
+        }
         tx.commit()?;
         Ok(())
     }
@@ -922,6 +924,24 @@ mod tests {
         assert_eq!(repaired.id, shot.id);
         assert_eq!(repaired.ocr_state, "pending");
         assert_eq!(store.attachments(note.id)?[0].id, shot.id);
+        Ok(())
+    }
+
+    #[test]
+    fn stale_ocr_failure_cannot_replace_newer_image_state() -> Result<()> {
+        let root = tempfile::tempdir()?;
+        let image = root.path().join("changing.png");
+        image::RgbImage::from_pixel(32, 32, image::Rgb([255, 255, 255])).save(&image)?;
+        let mut store = Store::open(&root.path().join("oxide.db"))?;
+        let stale = store.register_image(&image, true, None)?;
+        image::RgbImage::from_pixel(32, 32, image::Rgb([0, 0, 0])).save(&image)?;
+        let current = store.register_image(&image, true, None)?;
+        assert_ne!(stale.digest, current.digest);
+        assert_eq!(current.ocr_state, "pending");
+        store.ocr_failed(&stale, "old OCR job failed")?;
+        let unchanged = store.screenshot(current.id)?.unwrap();
+        assert_eq!(unchanged.ocr_state, "pending");
+        assert!(unchanged.ocr_error.is_none());
         Ok(())
     }
 

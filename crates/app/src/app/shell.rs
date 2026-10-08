@@ -61,7 +61,7 @@ impl App {
             if ui.add(search).changed() {
                 self.changed_query();
             }
-            if quiet(ui, "+")
+            if quiet(ui, "New note")
                 .on_hover_text("New note · Ctrl/Cmd+N")
                 .clicked()
             {
@@ -120,7 +120,7 @@ impl App {
             }
         }
         ui.add_space(22.0);
-        caption(ui, "Collections");
+        caption(ui, "Screenshot sources");
         if self.config.folders.is_empty() {
             caption(ui, "Add a screenshot folder to organize your library.");
             if quiet(ui, "+ Add folder").clicked() {
@@ -182,18 +182,7 @@ impl App {
 
     pub(super) fn status_bar(&mut self, ui: &mut egui::Ui) {
         ui.horizontal_wrapped(|ui| {
-            caption(
-                ui,
-                if self.editor.in_flight.is_some() {
-                    "Saving…"
-                } else if self.editor.error.is_some() {
-                    "Save failed · buffer retained"
-                } else if self.editor.dirty() {
-                    "Unsaved changes"
-                } else {
-                    "Saved locally"
-                },
-            );
+            caption(ui, self.editor.state().label());
             if self.editor.error.is_some() && quiet(ui, "Retry save").clicked() {
                 self.editor.error = None;
                 self.save();
@@ -210,12 +199,15 @@ impl App {
             ui.separator();
             caption(
                 ui,
-                if self.status.state.is_empty() {
-                    "Starting reader…"
-                } else {
-                    &self.status.state
-                },
+                format!(
+                    "{} · {} pending",
+                    self.status.state.label(),
+                    self.status.backlog
+                ),
             );
+            if quiet(ui, "Rescan").clicked() {
+                self.send(Request::Rescan);
+            }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 caption(ui, "●  Local only");
             });

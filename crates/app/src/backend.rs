@@ -9,7 +9,7 @@ use anyhow::{Context, Result};
 use eframe::egui;
 use image::DynamicImage;
 use oxide_core::{
-    Line, Note, NoteSummary, Screenshot, WorkerStatus,
+    Line, Note, NoteSummary, Screenshot, WorkerPhase, WorkerStatus,
     config::{Config, Paths},
     media,
     query::Query,
@@ -40,6 +40,7 @@ pub enum Request {
     SaveCapture(DynamicImage, Option<i64>, PathBuf),
     Image(i64, bool),
     Reindex(Option<i64>),
+    Rescan,
     TrashShots(Vec<i64>),
     Export(i64, PathBuf),
     ExportBuffer(Note, PathBuf),
@@ -51,6 +52,7 @@ pub enum Request {
 
 pub struct Snapshot {
     pub generation: u64,
+    pub detail: Option<i64>,
     pub revision: i64,
     pub notes: Vec<NoteSummary>,
     pub shots: Vec<Screenshot>,
@@ -66,6 +68,7 @@ pub enum Response {
     Note(Note),
     Saved(u64, Note),
     SaveFailed(String),
+    NoteTrashed(i64),
     Captured(DynamicImage),
     CaptureFailed(String),
     Image {
@@ -198,6 +201,7 @@ fn operation(request: Request, store: &mut Store, paths: &Paths) -> Result<Respo
             };
             Ok(Response::Snapshot(Snapshot {
                 generation,
+                detail: shot,
                 revision: store.revision()?,
                 notes: store.notes(&query, trash, limit, 0)?,
                 shots: store.screenshots(&query, limit, 0)?,
@@ -219,14 +223,11 @@ fn operation(request: Request, store: &mut Store, paths: &Paths) -> Result<Respo
         Request::Duplicate(id) => Ok(Response::Note(store.duplicate_note(id)?)),
         Request::NoteTrash(id, trash) => {
             store.set_note_trashed(id, trash)?;
-            Ok(Response::Changed(
-                if trash {
-                    "Note moved to note trash"
-                } else {
-                    "Note restored"
-                }
-                .into(),
-            ))
+            if trash {
+                Ok(Response::NoteTrashed(id))
+            } else {
+                Ok(Response::Changed("Note restored".into()))
+            }
         }
         Request::Attach(note, shot) => {
             store.attach(note, shot)?;
@@ -249,13 +250,23 @@ fn operation(request: Request, store: &mut Store, paths: &Paths) -> Result<Respo
             if let Some(id) = note {
                 store.attach(id, shot.id)?;
             }
+            let attached = note.is_some();
             if let Err(error) = media::thumbnail(paths, shot.id, &media::load_image(&path)?, &path)
             {
                 return Ok(Response::Changed(format!(
-                    "Image imported and attachment committed; thumbnail will be retried: {error:#}"
+                    "Image imported{}; thumbnail will be retried: {error:#}",
+                    if attached {
+                        " and attached"
+                    } else {
+                        " to the library"
+                    }
                 )));
             }
-            Ok(Response::Changed("Image imported; OCR queued".into()))
+            Ok(Response::Changed(if attached {
+                "Image imported and attached; OCR queued".into()
+            } else {
+                "Image imported to the library; OCR queued".into()
+            }))
         }
         Request::Paste(note, destination) => {
             let mut clipboard = arboard::Clipboard::new().context("Cannot access the clipboard")?;
@@ -281,6 +292,12 @@ fn operation(request: Request, store: &mut Store, paths: &Paths) -> Result<Respo
         Request::Reindex(id) => {
             store.reindex(id)?;
             Ok(Response::Changed("OCR queued for retry".into()))
+        }
+        Request::Rescan => {
+            oxide_core::config::atomic_write(&paths.data.join("rescan.request"), b"rescan\n")?;
+            Ok(Response::Changed(
+                "Source rescan requested; the reader will reconcile between image jobs.".into(),
+            ))
         }
         Request::TrashShots(ids) => {
             let mut successes = 0;
@@ -358,6 +375,7 @@ fn save_capture(
     note: Option<i64>,
     destination: &Path,
 ) -> Result<Response> {
+    let attached = note.is_some();
     fs::create_dir_all(destination).context("Cannot create capture directory")?;
     paths.ensure_original_location(destination)?;
     let file = media::save_capture(&image, destination)?;
@@ -369,10 +387,19 @@ fn save_capture(
     }
     if let Err(error) = media::thumbnail(paths, shot.id, &image, &file) {
         return Ok(Response::Changed(format!(
-            "Screenshot saved and attachment committed; thumbnail will be retried: {error:#}"
+            "Screenshot saved{}; OCR queued; thumbnail will be retried: {error:#}",
+            if attached {
+                " and attached"
+            } else {
+                " to the library"
+            }
         )));
     }
-    Ok(Response::Changed("Screenshot saved; OCR queued".into()))
+    Ok(Response::Changed(if attached {
+        "Screenshot saved and attached; OCR queued".into()
+    } else {
+        "Screenshot saved to the library; OCR queued".into()
+    }))
 }
 
 fn decode_image(store: &Store, paths: &Paths, id: i64, full: bool) -> Result<Response> {
@@ -448,23 +475,23 @@ fn worker_status(paths: &Paths) -> WorkerStatus {
         Ok(bytes) => match serde_json::from_slice::<WorkerStatus>(&bytes) {
             Ok(status) => status,
             Err(error) => WorkerStatus {
-                state: "Reader status unavailable".into(),
+                state: WorkerPhase::Unavailable,
                 error: Some(error.to_string()),
                 ..Default::default()
             },
         },
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => WorkerStatus {
-            state: "Reader not started".into(),
+            state: WorkerPhase::Stopped,
             ..Default::default()
         },
         Err(error) => WorkerStatus {
-            state: "Reader status unavailable".into(),
+            state: WorkerPhase::Unavailable,
             error: Some(error.to_string()),
             ..Default::default()
         },
     };
     match running {
-        Ok(false) => status.state = "Reader stopped; cached search remains available".into(),
+        Ok(false) => status.state = WorkerPhase::Stopped,
         Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
             status.error = Some(format!("Cannot check reader liveness: {error}"))
         }

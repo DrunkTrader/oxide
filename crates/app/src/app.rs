@@ -10,6 +10,7 @@ use eframe::egui::{self, Color32, RichText};
 use oxide_core::{
     Line, NoteSummary, Screenshot, WorkerStatus,
     config::{Config, Paths},
+    media,
     query::Query,
 };
 use winit::window::Window;
@@ -93,12 +94,14 @@ pub struct App {
     refresh_at: Instant,
     refresh_pending: bool,
     detail: Option<i64>,
+    detail_data_id: Option<i64>,
     selected_lines: HashSet<usize>,
     selected_shots: HashSet<i64>,
     textures: HashMap<(i64, bool), Texture>,
     loading: HashSet<(i64, bool)>,
     image_errors: HashMap<(i64, bool), String>,
     after_save: Option<AfterSave>,
+    pending_note_trash: Option<i64>,
     switching_note: bool,
     confirmation: Option<Confirmation>,
     settings: bool,
@@ -201,12 +204,14 @@ impl App {
             refresh_at: Instant::now() - Duration::from_secs(2),
             refresh_pending: false,
             detail: None,
+            detail_data_id: None,
             selected_lines: HashSet::new(),
             selected_shots: HashSet::new(),
             textures: HashMap::new(),
             loading: HashSet::new(),
             image_errors: HashMap::new(),
             after_save: None,
+            pending_note_trash: None,
             switching_note: false,
             confirmation: None,
             settings: launch.onboarding,
@@ -251,6 +256,39 @@ impl App {
                 self.notice = Some(format!("{e:#}"));
                 false
             }
+        }
+    }
+    fn import_dropped_files(&mut self, context: &egui::Context) {
+        let paths = context.input(|input| {
+            input
+                .raw
+                .dropped_files
+                .iter()
+                .map(|file| file.path().to_owned())
+                .collect::<Vec<_>>()
+        });
+        if paths.is_empty() {
+            return;
+        }
+        let note = self
+            .editor
+            .note
+            .as_ref()
+            .filter(|note| note.deleted_at.is_none())
+            .map(|note| note.id);
+        let mut imported = 0;
+        for path in paths {
+            if media::supported(&path) && self.send(Request::Import(path, note)) {
+                imported += 1;
+            }
+        }
+        if imported > 0 {
+            self.library = true;
+            self.all_view = false;
+            self.notice = Some(format!(
+                "Importing {imported} image{}; OCR will run locally.",
+                if imported == 1 { "" } else { "s" }
+            ));
         }
     }
     fn refresh(&mut self) {
@@ -308,9 +346,8 @@ impl App {
             }
             AfterSave::Trash(id) => {
                 if self.send(Request::NoteTrash(id, true)) {
-                    self.editor = Editor::default();
-                    self.attachments.clear();
-                    self.detail = None;
+                    self.pending_note_trash = Some(id);
+                    self.switching_note = true;
                 }
             }
             AfterSave::Export(id, path) => {
@@ -375,11 +412,19 @@ impl App {
                     self.notes = snapshot.notes;
                     self.shots = snapshot.shots;
                     self.attachments = snapshot.attachments;
-                    if self.lines != snapshot.lines {
+                    if snapshot.detail == self.detail {
+                        if self.lines != snapshot.lines {
+                            self.selected_lines.clear();
+                        }
+                        self.lines = snapshot.lines;
+                        self.linked = snapshot.linked;
+                        self.detail_data_id = snapshot.detail;
+                    } else {
+                        self.lines.clear();
+                        self.linked.clear();
                         self.selected_lines.clear();
+                        self.detail_data_id = None;
                     }
-                    self.lines = snapshot.lines;
-                    self.linked = snapshot.linked;
                     self.status = snapshot.status;
                     if let Some(note) = snapshot.note
                         && !self.editor.dirty()
@@ -395,6 +440,9 @@ impl App {
                     self.editor.load(note);
                     self.query_generation += 1;
                     self.detail = None;
+                    self.detail_data_id = None;
+                    self.lines.clear();
+                    self.linked.clear();
                     self.selected_lines.clear();
                     self.refresh_pending = false;
                     self.refresh();
@@ -408,8 +456,32 @@ impl App {
                     self.editor.failed(error);
                     self.after_save = None;
                 }
+                Response::NoteTrashed(id) => {
+                    if self.pending_note_trash == Some(id) {
+                        self.pending_note_trash = None;
+                        self.switching_note = false;
+                        if self.editor.note.as_ref().is_some_and(|note| note.id == id) {
+                            self.editor = Editor::default();
+                            self.attachments.clear();
+                            self.detail = None;
+                            self.detail_data_id = None;
+                            self.lines.clear();
+                            self.linked.clear();
+                            self.selected_lines.clear();
+                        }
+                        self.notice =
+                            Some("Note moved to note trash; screenshots were retained.".into());
+                        self.refresh_pending = false;
+                        self.refresh();
+                    }
+                }
                 Response::Captured(image) => {
                     self.capture_pending = false;
+                    self.notice = Some(if self.capture_region {
+                        "Capture ready; select a region to save it.".into()
+                    } else {
+                        "Screenshot captured; saving locally…".into()
+                    });
                     if self.capture_region && self.capture_restore {
                         let rgba = image.to_rgba8();
                         let texture = context.load_texture(
@@ -461,6 +533,9 @@ impl App {
                     lines,
                 } => {
                     self.loading.remove(&(id, full));
+                    if full && self.detail != Some(id) {
+                        continue;
+                    }
                     if self.hidden
                         || self
                             .shots
@@ -541,12 +616,23 @@ impl App {
                     self.restore_shortcuts();
                 }
                 Response::Changed(message) => {
+                    if message.starts_with("Moved ")
+                        && message.contains("originals to system trash")
+                    {
+                        self.selected_shots.clear();
+                        self.detail = None;
+                        self.detail_data_id = None;
+                        self.lines.clear();
+                        self.linked.clear();
+                        self.selected_lines.clear();
+                    }
                     self.notice = Some(message);
                     self.refresh_pending = false;
                     self.refresh();
                 }
                 Response::Error(error) => {
                     self.switching_note = false;
+                    self.pending_note_trash = None;
                     self.notice = Some(error);
                     self.refresh_pending = false;
                 }
@@ -763,6 +849,9 @@ impl App {
     fn select_shot(&mut self, id: i64) {
         self.textures.retain(|(_, full), _| !*full);
         self.detail = Some(id);
+        self.detail_data_id = None;
+        self.lines.clear();
+        self.linked.clear();
         self.query_generation += 1;
         self.selected_lines.clear();
         self.refresh_pending = false;
@@ -802,8 +891,6 @@ impl App {
                     Confirmation::Note(id) => self.defer(AfterSave::Trash(id)),
                     Confirmation::Shots(ids) => {
                         self.send(Request::TrashShots(ids));
-                        self.selected_shots.clear();
-                        self.detail = None;
                     }
                     Confirmation::Cache => {
                         self.send(Request::ClearCache);
@@ -889,6 +976,7 @@ impl App {
             && let Some(capture) = self.capture.take()
         {
             let image = capture.image.crop_imm(x, y, width, height);
+            self.notice = Some("Saving selected region locally…".into());
             self.send(Request::SaveCapture(
                 image,
                 capture.note,
@@ -940,6 +1028,7 @@ impl App {
 
 impl eframe::App for App {
     fn logic(&mut self, context: &egui::Context, _: &mut eframe::Frame) {
+        self.import_dropped_files(context);
         self.process_replies(context);
         while let Ok(action) = self.resident.receiver.try_recv() {
             self.action(action, context);

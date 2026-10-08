@@ -108,6 +108,11 @@ impl App {
         });
         ui.checkbox(&mut self.draft.always_on_top, "Keep Oxide on top");
         ui.checkbox(&mut self.draft.start_at_login, "Launch at login");
+        ui.checkbox(&mut self.draft.reduce_motion, "Reduce motion");
+        caption(
+            ui,
+            "Removes nonessential interface transitions while keeping status changes immediate.",
+        );
         ui.add_space(24.0);
         section(
             ui,
@@ -218,10 +223,59 @@ impl App {
             {
                 self.notice = Some(format!("{e:#}"));
             }
+            if ui.button("Rescan sources").clicked() {
+                self.send(Request::Rescan);
+            }
             if ui.button("Reindex library").clicked() {
                 self.send(Request::Reindex(None));
             }
         });
+        ui.add_space(10.0);
+        ui.label(RichText::new("Reader status").strong());
+        caption(
+            ui,
+            format!(
+                "{} · {} pending",
+                self.status.state.label(),
+                self.status.backlog
+            ),
+        );
+        for source in &self.status.sources {
+            caption(
+                ui,
+                format!(
+                    "{} · {}",
+                    source.path.display(),
+                    if !source.available {
+                        "Unavailable"
+                    } else if source.watched {
+                        "Watching"
+                    } else {
+                        "Watch unavailable"
+                    }
+                ),
+            );
+            if let Some(error) = &source.error {
+                ui.colored_label(Palette::of(ui).danger, error);
+            }
+        }
+        if let Some(time) = self
+            .status
+            .reconciled_at
+            .and_then(chrono::DateTime::from_timestamp_millis)
+        {
+            caption(
+                ui,
+                format!(
+                    "Last reconciliation: {}",
+                    time.with_timezone(&chrono::Local)
+                        .format("%Y-%m-%d %H:%M:%S")
+                ),
+            );
+        }
+        if let Some(error) = &self.status.error {
+            ui.colored_label(Palette::of(ui).danger, error);
+        }
         ui.add_space(24.0);
         section(
             ui,

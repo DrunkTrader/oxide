@@ -93,6 +93,7 @@ pub struct Config {
     pub capture_directory: PathBuf,
     pub folders: Vec<PathBuf>,
     pub theme: String,
+    pub reduce_motion: bool,
     pub always_on_top: bool,
     pub start_at_login: bool,
     pub last_note: Option<i64>,
@@ -115,6 +116,7 @@ impl Default for Config {
             capture_directory: base.join("Oxide"),
             folders: Vec::new(),
             theme: "system".into(),
+            reduce_motion: false,
             always_on_top: false,
             start_at_login: false,
             last_note: None,
@@ -198,10 +200,13 @@ mod tests {
         let path = temp.path().join("config.toml");
         let mut c = Config {
             recording_exclusion_enabled: true,
+            reduce_motion: true,
             ..Default::default()
         };
         c.save(&path)?;
-        assert!(Config::load(&path)?.unwrap().recording_exclusion_enabled);
+        let loaded = Config::load(&path)?.unwrap();
+        assert!(loaded.recording_exclusion_enabled);
+        assert!(loaded.reduce_motion);
         c.recording_exclusion_enabled = false;
         c.save(&path)?;
         assert!(!Config::load(&path)?.unwrap().recording_exclusion_enabled);

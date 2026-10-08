@@ -2,6 +2,29 @@ use std::time::Instant;
 
 use oxide_core::Note;
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SaveState {
+    NoNote,
+    ReadOnly,
+    Saving,
+    Failed,
+    Unsaved,
+    Saved,
+}
+
+impl SaveState {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::NoNote => "No note open",
+            Self::ReadOnly => "Note in trash · read only",
+            Self::Saving => "Saving…",
+            Self::Failed => "Save failed · buffer retained",
+            Self::Unsaved => "Unsaved changes",
+            Self::Saved => "Saved locally",
+        }
+    }
+}
+
 #[derive(Default)]
 pub struct Editor {
     pub note: Option<Note>,
@@ -13,6 +36,25 @@ pub struct Editor {
 }
 
 impl Editor {
+    pub fn state(&self) -> SaveState {
+        if self.note.is_none() {
+            SaveState::NoNote
+        } else if self
+            .note
+            .as_ref()
+            .is_some_and(|note| note.deleted_at.is_some())
+        {
+            SaveState::ReadOnly
+        } else if self.error.is_some() {
+            SaveState::Failed
+        } else if self.in_flight.is_some() {
+            SaveState::Saving
+        } else if self.dirty() {
+            SaveState::Unsaved
+        } else {
+            SaveState::Saved
+        }
+    }
     pub fn load(&mut self, note: Note) {
         self.note = Some(note);
         self.generation = 0;

@@ -245,14 +245,7 @@ impl App {
                                 self.select_shot(shot.id);
                             }
                             ui.horizontal(|ui| {
-                                caption(
-                                    ui,
-                                    if shot.available {
-                                        &shot.ocr_state
-                                    } else {
-                                        "Unavailable"
-                                    },
-                                );
+                                caption(ui, shot.status_label());
                                 if !trashed && quiet(ui, "Detach").clicked() {
                                     detach = Some(shot.id);
                                 }
