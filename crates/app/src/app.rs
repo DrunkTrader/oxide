@@ -21,9 +21,12 @@ use crate::{
     platform::{self, Display},
 };
 
+mod design;
 mod notes;
 mod screenshots;
 mod settings;
+mod shell;
+use design::*;
 
 pub struct Launch {
     pub background: bool,
@@ -99,6 +102,7 @@ pub struct App {
     switching_note: bool,
     confirmation: Option<Confirmation>,
     settings: bool,
+    settings_tab: usize,
     trash_view: bool,
     library: bool,
     all_view: bool,
@@ -152,16 +156,6 @@ impl App {
             notice = Some(format!("{e:#}"));
         }
         apply_theme(&creation.egui_ctx, &config);
-        creation.egui_ctx.all_styles_mut(|style| {
-            style.spacing.item_spacing = egui::vec2(12.0, 10.0);
-            style.spacing.button_padding = egui::vec2(12.0, 8.0);
-            style
-                .text_styles
-                .insert(egui::TextStyle::Body, egui::FontId::proportional(16.0));
-            style
-                .text_styles
-                .insert(egui::TextStyle::Button, egui::FontId::proportional(14.0));
-        });
         window.set_window_level(if config.always_on_top {
             winit::window::WindowLevel::AlwaysOnTop
         } else {
@@ -216,6 +210,7 @@ impl App {
             switching_note: false,
             confirmation: None,
             settings: launch.onboarding,
+            settings_tab: 0,
             trash_view: false,
             library: false,
             all_view: false,
@@ -774,52 +769,6 @@ impl App {
         self.refresh();
     }
 
-    fn header(&mut self, ui: &mut egui::Ui) {
-        ui.horizontal_wrapped(|ui| {
-            ui.label(RichText::new("OXIDE").size(22.0).strong().color(Color32::from_rgb(190, 110, 76)));
-            ui.separator();
-            for (label,library,all) in [("All",true,true),("Notes",false,false),("Screenshots",true,false)] {
-                if ui.selectable_label(self.library==library && self.all_view==all,label).clicked() {
-                    self.library=library;
-                    self.all_view=all;
-                    self.trash_view=false;
-                    self.query_generation+=1;
-                    self.refresh_pending=false;
-                    self.refresh();
-                }
-            }
-            let search=egui::TextEdit::singleline(&mut self.query).id(egui::Id::new("search"))
-                .hint_text("Search text · date: · in:").desired_width(240.0);
-            if ui.add(search).changed() {
-                self.limit=50;
-                self.query_generation+=1;
-                self.refresh_pending=false;
-                self.refresh();
-            }
-            self.filters(ui);
-            let mut enabled=self.pending_config.as_ref().unwrap_or(&self.config).recording_exclusion_enabled;
-            let label=if !platform::exclusion_supported(){"Recording exclusion: Unavailable"}
-                else if self.privacy_error.is_some(){"Recording exclusion: Failed"}
-                else if enabled{"Recording exclusion: On"}else{"Recording exclusion: Off"};
-            let checkbox=egui::Checkbox::new(&mut enabled,label);
-            let response=ui.add_enabled(platform::exclusion_supported() && self.pending_config.is_none(),checkbox);
-            if response.on_hover_text("Applies to validated capture paths. Recorder compatibility is not automatically verified.").changed(){self.toggle_exclusion(enabled);}
-            if self.pending_config.is_some(){ui.label("Saving preference…");}
-            if ui.button("Settings").clicked(){self.draft=self.config.clone();self.settings=true;}
-            if ui.button(if self.compact{"Expand"}else{"Compact"}).clicked() {
-                self.compact = !self.compact;
-                let size=if self.compact{winit::dpi::LogicalSize::new(480.0,620.0)}else{winit::dpi::LogicalSize::new(1120.0,760.0)};
-                let _=self.window.request_inner_size(size);
-            }
-            for (label,action) in [("Hide",Action::Hide),("Quit",Action::Quit)] {
-                if ui.button(label).clicked(){let context=ui.ctx().clone();self.action(action,&context);}
-            }
-        });
-        if let Some(error) = &self.query_error {
-            ui.colored_label(Color32::from_rgb(200, 100, 80), error);
-        }
-    }
-
     fn export_current(&mut self) {
         if let Some(id) = self.editor.note.as_ref().map(|note| note.id)
             && let Some(path) = rfd::FileDialog::new()
@@ -1042,12 +991,15 @@ impl eframe::App for App {
             self.action(Action::Hide, &context);
         }
         if context.input_mut(|input| input.consume_key(egui::Modifiers::COMMAND, egui::Key::N)) {
-            self.defer(AfterSave::New);
+            self.new_note();
         }
         if context.input_mut(|input| input.consume_key(egui::Modifiers::COMMAND, egui::Key::S)) {
             self.save();
         }
         if context.input_mut(|input| input.consume_key(egui::Modifiers::COMMAND, egui::Key::F)) {
+            context.memory_mut(|memory| memory.request_focus(egui::Id::new("search")));
+        }
+        if context.input_mut(|input| input.consume_key(egui::Modifiers::COMMAND, egui::Key::K)) {
             context.memory_mut(|memory| memory.request_focus(egui::Id::new("search")));
         }
         if context.input_mut(|input| input.consume_key(egui::Modifiers::NONE, egui::Key::Escape)) {
@@ -1063,55 +1015,13 @@ impl eframe::App for App {
                 self.action(Action::Hide, &context);
             }
         }
-        egui::Panel::top("header").show(ui, |ui| self.header(ui));
-        egui::Panel::bottom("status").show(ui, |ui| {
-            ui.horizontal_wrapped(|ui| {
-                ui.label(if self.editor.in_flight.is_some() {
-                    "Saving…"
-                } else if self.editor.error.is_some() {
-                    "Save failed — buffer retained"
-                } else if self.editor.dirty() {
-                    "Unsaved changes"
-                } else {
-                    "Saved locally"
-                });
-                if self.editor.error.is_some() && ui.button("Retry save").clicked() {
-                    self.editor.error = None;
-                    self.save();
-                }
-                if self.editor.error.is_some()
-                    && ui.button("Export buffer").clicked()
-                    && let Some(note) = self.editor.note.clone()
-                    && let Some(path) = rfd::FileDialog::new()
-                        .set_file_name("oxide-recovery.md")
-                        .save_file()
-                {
-                    self.send(Request::ExportBuffer(note, path));
-                }
-                ui.separator();
-                ui.label(if self.status.state.is_empty() {
-                    "Starting reader…"
-                } else {
-                    &self.status.state
-                });
-                ui.label(RichText::new("LOCAL ONLY").size(11.0).weak());
-            });
-            if let Some(error) = &self.editor.error {
-                ui.colored_label(Color32::from_rgb(200, 100, 80), error);
-            }
-            if let Some(error) = &self.status.error {
-                ui.label(RichText::new(error).size(12.0));
-            }
-            if let Some(message) = &self.notice {
-                let message = message.clone();
-                ui.horizontal_wrapped(|ui| {
-                    ui.label(message);
-                    if ui.small_button("Dismiss").clicked() {
-                        self.notice = None;
-                    }
-                });
-            }
-        });
+        let p = Palette::of(ui);
+        egui::Panel::top("header")
+            .frame(panel_frame(p.rail, 12))
+            .show(ui, |ui| self.header(ui));
+        egui::Panel::bottom("status")
+            .frame(panel_frame(p.rail, 8))
+            .show(ui, |ui| self.status_bar(ui));
         if self.config_error.is_some()
             || self.storage_error.is_some()
             || self.privacy_error.is_some()
@@ -1123,29 +1033,31 @@ impl eframe::App for App {
             egui::CentralPanel::default().show(ui, |ui| self.capture_selection(ui));
             return;
         }
+        if !self.compact {
+            egui::Panel::left("workspace-rail")
+                .resizable(false)
+                .exact_size(212.0)
+                .frame(panel_frame(p.rail, 16))
+                .show(ui, |ui| self.workspace_rail(ui));
+        }
         if !self.library && !self.compact {
             egui::Panel::left("notes-sidebar")
                 .resizable(true)
-                .default_size(240.0)
+                .default_size(246.0)
+                .frame(panel_frame(p.canvas, 16))
                 .show(ui, |ui| self.note_sidebar(ui));
         }
-        egui::CentralPanel::default().show(ui, |ui| {
-            if self.library {
-                self.library(ui);
-            } else {
-                self.note_editor(ui);
-            }
-        });
+        egui::CentralPanel::default()
+            .frame(panel_frame(p.canvas, 24))
+            .show(ui, |ui| {
+                if self.library {
+                    self.library(ui);
+                } else {
+                    self.note_editor(ui);
+                }
+            });
         self.detail(&context);
         self.settings(&context);
         self.confirm(&context);
     }
-}
-
-fn apply_theme(context: &egui::Context, config: &Config) {
-    context.set_theme(match config.theme.as_str() {
-        "light" => egui::ThemePreference::Light,
-        "dark" => egui::ThemePreference::Dark,
-        _ => egui::ThemePreference::System,
-    });
 }

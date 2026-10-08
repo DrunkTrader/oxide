@@ -2,11 +2,12 @@ use super::*;
 
 impl App {
     pub(super) fn capture_controls(&mut self, ui: &mut egui::Ui) {
+        caption(ui, "Capture source");
         egui::ComboBox::from_id_salt("capture-display")
             .selected_text(
                 self.displays
                     .get(self.display_index)
-                    .map_or("No display", |d| d.name.as_str()),
+                    .map_or("No display", |display| display.name.as_str()),
             )
             .show_ui(ui, |ui| {
                 for (index, display) in self.displays.iter().enumerate() {
@@ -16,58 +17,86 @@ impl App {
         ui.add_enabled_ui(!self.capture_pending && self.capture.is_none(), |ui| {
             if ui.button("Capture region").clicked() {
                 self.start_capture(true);
+                ui.close();
             }
             if ui.button("Capture display").clicked() {
                 self.start_capture(false);
+                ui.close();
             }
         });
     }
 
     pub(super) fn library(&mut self, ui: &mut egui::Ui) {
-        ui.horizontal_wrapped(|ui| {
-            self.capture_controls(ui);
-            if ui.button("Import image").clicked()
-                && let Some(path) = rfd::FileDialog::new()
-                    .add_filter("Images", &["png", "jpg", "jpeg", "webp"])
-                    .pick_file()
-            {
-                self.send(Request::Import(path, None));
-            }
-            if ui.button("Paste image").clicked() {
-                self.send(Request::Paste(None, self.config.capture_directory.clone()));
-            }
-            if ui
-                .add_enabled(
-                    !self.selected_shots.is_empty(),
-                    egui::Button::new(format!("Trash selected ({})", self.selected_shots.len())),
-                )
-                .clicked()
-            {
-                self.confirmation = Some(Confirmation::Shots(
-                    self.selected_shots.iter().copied().collect(),
-                ));
-            }
+        ui.horizontal(|ui| {
+            section(
+                ui,
+                if self.all_view {
+                    "Your workspace"
+                } else {
+                    "Screenshots"
+                },
+                if self.query.is_empty() {
+                    "Keep the original. Find the details later."
+                } else {
+                    "Results from your local library"
+                },
+            );
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.menu_button("Add image", |ui| self.image_actions(ui, None));
+                self.filters(ui);
+            });
         });
-        ui.separator();
+        ui.add_space(18.0);
+        if !self.selected_shots.is_empty() {
+            ui.horizontal(|ui| {
+                caption(ui, format!("{} selected", self.selected_shots.len()));
+                let danger = Palette::of(ui).danger;
+                if ui
+                    .add(
+                        egui::Button::new(RichText::new("Move to trash…").color(danger))
+                            .frame(false),
+                    )
+                    .clicked()
+                {
+                    self.confirmation = Some(Confirmation::Shots(
+                        self.selected_shots.iter().copied().collect(),
+                    ));
+                }
+                if quiet(ui, "Clear selection").clicked() {
+                    self.selected_shots.clear();
+                }
+            });
+            ui.add_space(12.0);
+        }
         if self.all_view {
-            ui.label(RichText::new("NOTES").size(12.0).weak());
+            ui.label(RichText::new("Notes").size(16.0).strong());
+            ui.add_space(6.0);
             let mut chosen = None;
             egui::ScrollArea::vertical()
                 .id_salt("all-notes")
-                .max_height(180.0)
+                .max_height(154.0)
                 .show(ui, |ui| {
                     for note in &self.notes {
-                        if ui.link(&note.title).clicked() {
+                        if ui
+                            .add(
+                                egui::Button::new(RichText::new(&note.title).strong())
+                                    .frame_when_inactive(false),
+                            )
+                            .clicked()
+                        {
                             chosen = Some(note.id);
                         }
-                        ui.label(
-                            RichText::new(note.excerpt.replace('\n', " "))
-                                .size(12.0)
-                                .weak(),
+                        ui.add(
+                            egui::Label::new(
+                                RichText::new(note.excerpt.replace('\n', " "))
+                                    .size(12.0)
+                                    .weak(),
+                            )
+                            .truncate(),
                         );
                     }
                     if self.notes.is_empty() {
-                        ui.label("No matching notes");
+                        caption(ui, "No matching notes");
                     }
                 });
             if let Some(id) = chosen {
@@ -75,38 +104,53 @@ impl App {
                 self.library = false;
                 self.defer(AfterSave::Load(id));
             }
-            if self.notes.len() >= self.limit && ui.button("Load more notes").clicked() {
+            if self.notes.len() >= self.limit && quiet(ui, "Load more notes").clicked() {
                 self.limit += 50;
                 self.refresh_pending = false;
                 self.refresh();
             }
-            ui.separator();
-            ui.label(RichText::new("SCREENSHOTS").size(12.0).weak());
+            ui.add_space(18.0);
+            ui.label(RichText::new("Screenshots").size(16.0).strong());
+            ui.add_space(8.0);
         }
         if self.shots.is_empty() {
-            ui.heading(if self.query.is_empty() {
-                "Your visual library starts here."
-            } else {
-                "No matching screenshots"
-            });
-            ui.label("Capture, import an image, or add an existing screenshot folder in Settings.");
+            ui.add_space(40.0);
+            section(
+                ui,
+                if self.query.is_empty() {
+                    "A place for your screenshots."
+                } else {
+                    "No screenshots found."
+                },
+                if self.query.is_empty() {
+                    "Capture a region, import an image or connect a screenshot folder."
+                } else {
+                    "Try fewer words or a different date or folder."
+                },
+            );
+            ui.add_space(16.0);
+            if self.query.is_empty() && primary(ui, "Capture a region").clicked() {
+                self.start_capture(true);
+            }
             return;
         }
-        let columns = (ui.available_width() / 210.0).floor().max(1.0) as usize;
+        caption(ui, format!("{} screenshots loaded", self.shots.len()));
+        ui.add_space(10.0);
+        let columns = (ui.available_width() / 246.0).floor().max(1.0) as usize;
         let rows = self.shots.len().div_ceil(columns);
         egui::ScrollArea::vertical()
             .id_salt("screenshot-library")
-            .show_rows(ui, 190.0, rows, |ui, range| {
+            .show_rows(ui, 218.0, rows, |ui, range| {
                 for row in range {
                     ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = 12.0;
                         for index in row * columns..((row + 1) * columns).min(self.shots.len()) {
-                            let shot = self.shots[index].clone();
-                            self.shot_tile(ui, &shot);
+                            self.shot_tile(ui, &self.shots[index].clone());
                         }
                     });
                 }
             });
-        if self.shots.len() >= self.limit && ui.button("Load more screenshots").clicked() {
+        if self.shots.len() >= self.limit && quiet(ui, "Load more screenshots").clicked() {
             self.limit += 50;
             self.refresh_pending = false;
             self.refresh();
@@ -114,13 +158,14 @@ impl App {
     }
 
     fn shot_tile(&mut self, ui: &mut egui::Ui, shot: &Screenshot) {
-        egui::Frame::group(ui.style()).show(ui, |ui| {
-            ui.set_width(185.0);
-            ui.set_min_height(170.0);
+        let p = Palette::of(ui);
+        card(ui).show(ui, |ui| {
+            ui.set_width(214.0);
+            ui.set_min_height(194.0);
             if let Some((texture, size)) = self.picture(shot.id, false) {
                 let response = ui.add(
                     egui::Image::new((texture, size))
-                        .max_size(egui::vec2(180.0, 120.0))
+                        .max_size(egui::vec2(210.0, 132.0))
                         .sense(egui::Sense::click()),
                 );
                 if let Some(texture) = self.textures.get(&(shot.id, false))
@@ -137,7 +182,7 @@ impl App {
                 }
             } else if ui
                 .add_sized(
-                    [180.0, 120.0],
+                    [210.0, 132.0],
                     egui::Button::new(if self.image_errors.contains_key(&(shot.id, false)) {
                         "Image unavailable"
                     } else {
@@ -148,30 +193,44 @@ impl App {
             {
                 self.select_shot(shot.id);
             }
-            let mut selected = self.selected_shots.contains(&shot.id);
-            let filename = Path::new(&shot.path)
-                .file_name()
-                .unwrap_or_default()
-                .to_string_lossy();
-            if ui
-                .checkbox(&mut selected, RichText::new(filename).size(11.0))
-                .changed()
-            {
-                if selected {
-                    self.selected_shots.insert(shot.id);
-                } else {
-                    self.selected_shots.remove(&shot.id);
+            ui.add_space(6.0);
+            ui.horizontal(|ui| {
+                let filename = Path::new(&shot.path)
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy();
+                ui.add(egui::Label::new(RichText::new(filename).size(12.0)).truncate());
+                let mut selected = self.selected_shots.contains(&shot.id);
+                if ui
+                    .checkbox(&mut selected, "")
+                    .on_hover_text("Select screenshot for trash")
+                    .changed()
+                {
+                    if selected {
+                        self.selected_shots.insert(shot.id);
+                    } else {
+                        self.selected_shots.remove(&shot.id);
+                    }
                 }
-            }
-            ui.label(
-                RichText::new(if shot.available {
-                    &shot.ocr_state
+            });
+            caption(
+                ui,
+                if shot.available {
+                    match shot.ocr_state.as_str() {
+                        "ready" => "Text indexed",
+                        "pending" => "OCR pending",
+                        "no_text" => "No text found",
+                        "failed" => "OCR failed",
+                        "invalid" => "Invalid image",
+                        other => other,
+                    }
                 } else {
                     "Original unavailable"
-                })
-                .size(11.0)
-                .weak(),
+                },
             );
+            if !shot.available {
+                ui.colored_label(p.danger, "Original unavailable");
+            }
         });
     }
 
@@ -186,35 +245,42 @@ impl App {
             .find(|shot| shot.id == id)
             .cloned();
         let mut open = true;
+        let p = Palette::new(context.style_of(context.theme()).visuals.dark_mode);
         egui::Window::new("Screenshot detail")
             .id(egui::Id::new("detail-window"))
             .open(&mut open)
+            .collapsible(false)
+            .frame(egui::Frame::window(&context.style_of(context.theme())).fill(p.raised))
             .default_size([920.0, 650.0])
             .show(context, |ui| {
                 self.detail_actions(ui, id, context);
+                ui.add_space(8.0);
                 if let Some(shot) = &shot {
-                    ui.label(RichText::new(&shot.path).size(11.0).weak());
+                    caption(ui, &shot.path);
                     if let Some(time) = chrono::DateTime::from_timestamp_millis(shot.captured_at) {
-                        ui.label(format!(
-                            "{} · {}×{} · {}",
-                            time.with_timezone(&chrono::Local)
-                                .format("%Y-%m-%d %H:%M:%S"),
-                            shot.width,
-                            shot.height,
-                            match shot.time_source.as_str() {
-                                "captured" => "Recorded capture time",
-                                "modified" => "File modification time at import/recovery",
-                                _ => "Legacy timestamp (provenance unknown)",
-                            }
-                        ));
+                        caption(
+                            ui,
+                            format!(
+                                "{} · {}×{} · {}",
+                                time.with_timezone(&chrono::Local)
+                                    .format("%Y-%m-%d %H:%M:%S"),
+                                shot.width,
+                                shot.height,
+                                match shot.time_source.as_str() {
+                                    "captured" => "Recorded capture time",
+                                    "modified" => "File modification time at import/recovery",
+                                    _ => "Legacy timestamp",
+                                }
+                            ),
+                        );
                     }
                     ui.horizontal(|ui| {
-                        if ui.button("Open externally (recordable)").clicked()
+                        if quiet(ui, "Open externally").clicked()
                             && let Err(error) = open::that(&shot.path)
                         {
                             self.notice = Some(format!("Cannot open external viewer: {error}"));
                         }
-                        if ui.button("Reveal folder").clicked()
+                        if quiet(ui, "Reveal folder").clicked()
                             && let Some(parent) = Path::new(&shot.path).parent()
                             && let Err(error) = open::that(parent)
                         {
@@ -222,13 +288,13 @@ impl App {
                         }
                     });
                     if let Some(error) = &shot.ocr_error {
-                        ui.colored_label(Color32::from_rgb(200, 100, 80), error);
+                        ui.colored_label(p.danger, error);
                     }
                 }
                 let mut chosen = None;
                 ui.horizontal_wrapped(|ui| {
                     for note in &self.linked {
-                        if ui.link(format!("Linked note: {}", note.title)).clicked() {
+                        if quiet(ui, &format!("Linked note · {}", note.title)).clicked() {
                             chosen = Some(note.id);
                         }
                     }
@@ -251,7 +317,7 @@ impl App {
 
     fn detail_actions(&mut self, ui: &mut egui::Ui, id: i64, context: &egui::Context) {
         ui.horizontal_wrapped(|ui| {
-            if ui.button("Copy all text").clicked() {
+            if quiet(ui, "Copy all text").clicked() {
                 let text = self
                     .lines
                     .iter()
@@ -272,14 +338,14 @@ impl App {
                 .map(|(_, line)| line.text.as_str())
                 .collect::<Vec<_>>()
                 .join("\n");
-            if ui.button("Copy selected").clicked() {
+            if quiet(ui, "Copy selected").clicked() {
                 if selected.is_empty() {
                     self.notice = Some("Select recognized lines first".into());
                 } else {
                     context.copy_text(selected.clone());
                 }
             }
-            if ui.button("Insert selected into note").clicked() {
+            if quiet(ui, "Insert selected").clicked() {
                 if selected.is_empty() {
                     self.notice = Some("Select recognized lines first".into());
                 } else if let Some(note) = &mut self.editor.note
@@ -298,18 +364,22 @@ impl App {
                 .as_ref()
                 .filter(|note| note.deleted_at.is_none())
                 .map(|note| note.id)
-                && ui.button("Attach to current note").clicked()
+                && quiet(ui, "Attach to note").clicked()
             {
                 self.send(Request::Attach(note, id));
             }
-            if ui.button("Retry OCR").clicked() {
+            if quiet(ui, "Retry OCR").clicked() {
                 self.send(Request::Reindex(Some(id)));
             }
-            if ui.button("Retry image").clicked() {
-                self.image_errors.remove(&(id, true));
-                self.textures.remove(&(id, true));
-            }
-            if ui.button("Trash original").clicked() {
+            if ui
+                .add(
+                    egui::Button::new(
+                        RichText::new("Trash original").color(Palette::of(ui).danger),
+                    )
+                    .frame(false),
+                )
+                .clicked()
+            {
                 self.confirmation = Some(Confirmation::Shots(vec![id]));
             }
         });
@@ -339,13 +409,16 @@ impl App {
                 }
             }
         } else if let Some(error) = self.image_errors.get(&(id, true)) {
-            ui.colored_label(Color32::from_rgb(200, 100, 80), error);
+            ui.colored_label(Palette::of(ui).danger, error);
         } else {
             ui.spinner();
-            ui.label("Loading original…");
+            caption(ui, "Loading original…");
         }
         if self.lines.is_empty() {
-            ui.label("No recognized text yet. The image remains available independently of OCR.");
+            caption(
+                ui,
+                "No recognized text yet. The original remains available independently of OCR.",
+            );
         }
         for (index, line) in self.lines.iter().enumerate() {
             let mut selected = self.selected_lines.contains(&index);
@@ -371,7 +444,7 @@ fn highlight(ui: &egui::Ui, bounds: egui::Rect) {
     ui.painter().rect_stroke(
         bounds,
         1.0,
-        egui::Stroke::new(1.5, Color32::from_rgb(190, 110, 76)),
+        egui::Stroke::new(1.5, ACCENT),
         egui::StrokeKind::Inside,
     );
 }

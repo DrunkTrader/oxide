@@ -123,4 +123,3 @@ The pipeline check generates a nonprivate fixture, runs actual local OCR, verifi
 
 Windows installer definition: `packaging/windows/oxide.iss` (Inno Setup 6; build both release binaries first). The CI definition covers native Linux/Windows checks; remote execution and actual recorded-output tests remain release gates.
 
-See [implementation status](docs/IMPLEMENTATION_STATUS.md) and [PRD](PRD.md) for remaining release requirements and measured verification limits.

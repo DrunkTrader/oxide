@@ -3,5 +3,5 @@
 *.log
 /.oxide/
 PRD.md
-docs/
+/docs/*
 Project report/
