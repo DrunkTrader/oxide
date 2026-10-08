@@ -3,5 +3,6 @@
 *.log
 /.oxide/
 PRD.md
-docs/
+/docs/*
+!/docs/UI_REDESIGN_PLAN.md
 Project report/
