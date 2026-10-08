@@ -1,0 +1,7 @@
+/target/
+/dist/
+*.log
+/.oxide/
+PRD.md
+docs/
+Project report/

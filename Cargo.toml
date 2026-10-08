@@ -1,0 +1,34 @@
+[workspace]
+members = ["crates/core", "crates/ocr", "crates/worker", "crates/app"]
+resolver = "3"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.95"
+license = "MIT"
+
+[workspace.dependencies]
+anyhow = "1"
+chrono = { version = "0.4", features = ["serde"] }
+directories = "6"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp"] }
+log = "0.4"
+rusqlite = { version = "0.40", features = ["bundled", "backup"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+tempfile = "3"
+toml = "1"
+oxide-core = { path = "crates/core" }
+oxide-ocr = { path = "crates/ocr" }
+
+[workspace.lints.clippy]
+undocumented_unsafe_blocks = "deny"
+
+[profile.dev.package."*"]
+opt-level = 2
+
+[profile.release]
+lto = "thin"
+strip = "debuginfo"

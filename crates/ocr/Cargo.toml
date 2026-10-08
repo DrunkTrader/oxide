@@ -1,0 +1,19 @@
+[package]
+name = "oxide-ocr"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+image.workspace = true
+oxide-core.workspace = true
+sha2.workspace = true
+ocrs = { version = "0.13.1", default-features = false, features = ["onnx"] }
+rten = { version = "0.26", default-features = false, features = ["onnx_format"] }
+ureq = "3"
+rayon = "1"
+
+[lints]
+workspace = true
