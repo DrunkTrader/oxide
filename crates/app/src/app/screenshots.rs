@@ -136,14 +136,18 @@ impl App {
         }
         caption(ui, format!("{} screenshots loaded", self.shots.len()));
         ui.add_space(10.0);
-        let columns = (ui.available_width() / 246.0).floor().max(1.0) as usize;
+        const TILE_WIDTH: f32 = 234.0;
+        const TILE_GAP: f32 = 12.0;
+        let columns = (ui.available_width() / (TILE_WIDTH + TILE_GAP))
+            .floor()
+            .max(1.0) as usize;
         let rows = self.shots.len().div_ceil(columns);
         egui::ScrollArea::vertical()
             .id_salt("screenshot-library")
-            .show_rows(ui, 218.0, rows, |ui, range| {
+            .show_rows(ui, 270.0, rows, |ui, range| {
                 for row in range {
                     ui.horizontal(|ui| {
-                        ui.spacing_mut().item_spacing.x = 12.0;
+                        ui.spacing_mut().item_spacing.x = TILE_GAP;
                         for index in row * columns..((row + 1) * columns).min(self.shots.len()) {
                             self.shot_tile(ui, &self.shots[index].clone());
                         }
@@ -158,98 +162,105 @@ impl App {
     }
 
     fn shot_tile(&mut self, ui: &mut egui::Ui, shot: &Screenshot) {
-        let p = Palette::of(ui);
-        card(ui).show(ui, |ui| {
-            ui.set_width(214.0);
-            ui.set_min_height(194.0);
-            if let Some((texture, size)) = self.picture(shot.id, false) {
-                let response = ui.add(
-                    egui::Image::new((texture, size))
-                        .max_size(egui::vec2(210.0, 132.0))
-                        .sense(egui::Sense::click()),
-                );
-                if let Some(texture) = self.textures.get(&(shot.id, false))
-                    && let Ok(query) = Query::parse(&self.query)
-                {
-                    for line in &texture.lines {
-                        if query.matches_line(&line.text) {
-                            highlight(ui, line_rect(response.rect, line));
+        const TILE_WIDTH: f32 = 234.0;
+        const TILE_HEIGHT: f32 = 270.0;
+        ui.allocate_ui_with_layout(
+            egui::vec2(TILE_WIDTH, TILE_HEIGHT),
+            egui::Layout::top_down(egui::Align::Min),
+            |ui| {
+                let p = Palette::of(ui);
+                card(ui).show(ui, |ui| {
+                    ui.set_min_height(TILE_HEIGHT - 28.0);
+                    if let Some((texture, size)) = self.picture(shot.id, false) {
+                        let response = ui.add(
+                            egui::Image::new((texture, size))
+                                .max_size(egui::vec2(204.0, 132.0))
+                                .sense(egui::Sense::click()),
+                        );
+                        if let Some(texture) = self.textures.get(&(shot.id, false))
+                            && let Ok(query) = Query::parse(&self.query)
+                        {
+                            for line in &texture.lines {
+                                if query.matches_line(&line.text) {
+                                    highlight(ui, line_rect(response.rect, line));
+                                }
+                            }
+                        }
+                        if response.clicked() {
+                            self.select_shot(shot.id);
+                        }
+                    } else if ui
+                        .add_sized(
+                            [204.0, 132.0],
+                            egui::Button::new(if self.image_errors.contains_key(&(shot.id, false)) {
+                                "Image unavailable"
+                            } else {
+                                "Loading…"
+                            }),
+                        )
+                        .clicked()
+                    {
+                        self.select_shot(shot.id);
+                    }
+                    if let Ok(query) = Query::parse(&self.query)
+                        && let Some(texture) = self.textures.get(&(shot.id, false))
+                    {
+                        let matched = texture
+                            .lines
+                            .iter()
+                            .filter(|line| query.matches_line(&line.text))
+                            .take(2)
+                            .map(|line| line.text.as_str())
+                            .collect::<Vec<_>>()
+                            .join(" · ");
+                        if !matched.is_empty() {
+                            ui.add(
+                                egui::Label::new(
+                                    RichText::new(format!("Match: {matched}"))
+                                        .size(11.0)
+                                        .color(p.accent_text),
+                                )
+                                .truncate(),
+                            );
                         }
                     }
-                }
-                if response.clicked() {
-                    self.select_shot(shot.id);
-                }
-            } else if ui
-                .add_sized(
-                    [210.0, 132.0],
-                    egui::Button::new(if self.image_errors.contains_key(&(shot.id, false)) {
-                        "Image unavailable"
-                    } else {
-                        "Loading…"
-                    }),
-                )
-                .clicked()
-            {
-                self.select_shot(shot.id);
-            }
-            if let Ok(query) = Query::parse(&self.query)
-                && let Some(texture) = self.textures.get(&(shot.id, false))
-            {
-                let matched = texture
-                    .lines
-                    .iter()
-                    .filter(|line| query.matches_line(&line.text))
-                    .take(2)
-                    .map(|line| line.text.as_str())
-                    .collect::<Vec<_>>()
-                    .join(" · ");
-                if !matched.is_empty() {
-                    ui.add(
-                        egui::Label::new(
-                            RichText::new(format!("Match: {matched}"))
-                                .size(11.0)
-                                .color(p.accent_text),
-                        )
-                        .truncate(),
-                    );
-                }
-            }
-            ui.add_space(6.0);
-            ui.horizontal(|ui| {
-                let filename = Path::new(&shot.path)
-                    .file_name()
-                    .unwrap_or_default()
-                    .to_string_lossy();
-                ui.add(egui::Label::new(RichText::new(filename).size(12.0)).truncate());
-                let mut selected = self.selected_shots.contains(&shot.id);
-                if ui
-                    .checkbox(&mut selected, "Select")
-                    .on_hover_text("Select screenshot for trash")
-                    .changed()
-                {
-                    if selected {
-                        self.selected_shots.insert(shot.id);
-                    } else {
-                        self.selected_shots.remove(&shot.id);
+                    ui.add_space(6.0);
+                    ui.horizontal(|ui| {
+                        let filename = Path::new(&shot.path)
+                            .file_name()
+                            .unwrap_or_default()
+                            .to_string_lossy();
+                        ui.add(egui::Label::new(RichText::new(filename).size(12.0)).truncate());
+                        let mut selected = self.selected_shots.contains(&shot.id);
+                        if ui
+                            .checkbox(&mut selected, "Select")
+                            .on_hover_text("Select screenshot for trash")
+                            .changed()
+                        {
+                            if selected {
+                                self.selected_shots.insert(shot.id);
+                            } else {
+                                self.selected_shots.remove(&shot.id);
+                            }
+                        }
+                    });
+                    caption(ui, format!("Screenshot · {}", shot.status_label()));
+                    if let Some(time) = chrono::DateTime::from_timestamp_millis(shot.captured_at) {
+                        caption(
+                            ui,
+                            format!(
+                                "{} · {}",
+                                time.with_timezone(&chrono::Local).format("%b %-d, %H:%M"),
+                                shot.time_label()
+                            ),
+                        );
                     }
-                }
-            });
-            caption(ui, format!("Screenshot · {}", shot.status_label()));
-            if let Some(time) = chrono::DateTime::from_timestamp_millis(shot.captured_at) {
-                caption(
-                    ui,
-                    format!(
-                        "{} · {}",
-                        time.with_timezone(&chrono::Local).format("%b %-d, %H:%M"),
-                        shot.time_label()
-                    ),
-                );
-            }
-            if !shot.available {
-                ui.colored_label(p.danger, "Original unavailable");
-            }
-        });
+                    if !shot.available {
+                        ui.colored_label(p.danger, "Original unavailable");
+                    }
+                });
+            },
+        );
     }
 
     pub(super) fn detail(&mut self, context: &egui::Context) {

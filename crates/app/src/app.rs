@@ -775,6 +775,11 @@ impl App {
             Action::Hide => {
                 self.capture_restore = false;
                 self.save();
+                self.settings = false;
+                context.send_viewport_cmd_to(
+                    egui::ViewportId::from_hash_of("workspace-settings"),
+                    egui::ViewportCommand::Close,
+                );
                 self.hidden = true;
                 self.window.set_visible(false);
                 self.textures.clear();
@@ -1100,6 +1105,10 @@ impl eframe::App for App {
                 self.detail = None;
             } else if self.settings {
                 self.settings = false;
+                context.send_viewport_cmd_to(
+                    egui::ViewportId::from_hash_of("workspace-settings"),
+                    egui::ViewportCommand::Close,
+                );
             } else {
                 self.action(Action::Hide, &context);
             }

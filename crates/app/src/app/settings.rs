@@ -39,54 +39,67 @@ impl App {
         if !self.settings {
             return;
         }
+        let viewport_id = egui::ViewportId::from_hash_of("workspace-settings");
         let mut open = true;
-        egui::Window::new("Settings")
-            .id(egui::Id::new("workspace-settings"))
-            .open(&mut open)
-            .collapsible(false)
-            .default_size([660.0, 570.0])
-            .show(context, |ui| {
-                caption(ui, "Your workspace, on your device.");
-                ui.add_space(14.0);
-                ui.horizontal_wrapped(|ui| {
-                    for (index, label) in ["General", "Storage", "Shortcuts", "OCR & maintenance"]
-                        .iter()
-                        .enumerate()
-                    {
-                        ui.selectable_value(&mut self.settings_tab, index, *label);
-                    }
-                });
-                ui.add_space(14.0);
-                ui.separator();
-                egui::ScrollArea::vertical()
-                    .id_salt("settings-content")
-                    .max_height(390.0)
-                    .show(ui, |ui| {
-                        ui.set_min_height(330.0);
-                        ui.add_space(12.0);
-                        match self.settings_tab {
-                            0 => self.general_settings(ui),
-                            1 => self.storage_settings(ui),
-                            2 => self.shortcut_settings(ui),
-                            _ => self.ocr_settings(ui),
-                        }
-                    });
-                ui.separator();
-                ui.add_space(8.0);
-                ui.horizontal(|ui| {
-                    caption(ui, "Changes apply when saved.");
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        ui.add_enabled_ui(self.pending_config.is_none(), |ui| {
-                            if primary(ui, "Save settings").clicked() {
-                                self.save_preferences(self.draft.clone(), false);
-                            }
-                        });
-                    });
-                });
-            });
+        context.show_viewport_immediate(
+            viewport_id,
+            egui::ViewportBuilder::default()
+                .with_title("Settings")
+                .with_inner_size([700.0, 620.0])
+                .with_min_inner_size([560.0, 460.0]),
+            |ui, _| {
+                if ui.ctx().input(|input| input.viewport().close_requested()) {
+                    open = false;
+                }
+                let p = Palette::of(ui);
+                egui::CentralPanel::default()
+                    .frame(panel_frame(p.canvas, 24))
+                    .show(ui, |ui| self.settings_content(ui));
+            },
+        );
         if !open {
             self.settings = false;
         }
+    }
+
+    fn settings_content(&mut self, ui: &mut egui::Ui) {
+        caption(ui, "Your workspace, on your device.");
+        ui.add_space(14.0);
+        ui.horizontal_wrapped(|ui| {
+            for (index, label) in ["General", "Storage", "Shortcuts", "OCR & maintenance"]
+                .iter()
+                .enumerate()
+            {
+                ui.selectable_value(&mut self.settings_tab, index, *label);
+            }
+        });
+        ui.add_space(14.0);
+        ui.separator();
+        egui::ScrollArea::vertical()
+            .id_salt("settings-content")
+            .max_height(420.0)
+            .show(ui, |ui| {
+                ui.set_min_height(330.0);
+                ui.add_space(12.0);
+                match self.settings_tab {
+                    0 => self.general_settings(ui),
+                    1 => self.storage_settings(ui),
+                    2 => self.shortcut_settings(ui),
+                    _ => self.ocr_settings(ui),
+                }
+            });
+        ui.separator();
+        ui.add_space(8.0);
+        ui.horizontal(|ui| {
+            caption(ui, "Changes apply when saved.");
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.add_enabled_ui(self.pending_config.is_none(), |ui| {
+                    if primary(ui, "Save settings").clicked() {
+                        self.save_preferences(self.draft.clone(), false);
+                    }
+                });
+            });
+        });
     }
 
     fn general_settings(&mut self, ui: &mut egui::Ui) {
@@ -194,7 +207,11 @@ impl App {
                     ("Capture display", &mut self.draft.display_shortcut),
                 ] {
                     ui.label(label);
-                    ui.add(egui::TextEdit::singleline(value).font(egui::TextStyle::Monospace));
+                    ui.add(
+                        egui::TextEdit::singleline(value)
+                            .font(egui::TextStyle::Monospace)
+                            .desired_width(190.0),
+                    );
                     ui.end_row();
                 }
             });
