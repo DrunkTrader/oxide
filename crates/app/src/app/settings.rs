@@ -15,15 +15,27 @@ impl App {
                     self.changed_query(); ui.close();
                 } else { self.notice = Some("Use a complete calendar date in YYYY-MM-DD format".into()); }
             }
-            if ui.button("Choose screenshot folder…").clicked() && let Some(folder) = rfd::FileDialog::new().pick_folder() {
-                let folder = folder.to_string_lossy();
-                if folder.contains('"') { self.notice = Some("The quoted folder-filter syntax cannot represent this folder name".into()); }
-                else { self.query.push_str(&format!(" in:\"{folder}\"")); self.library = true; self.all_view = false; self.changed_query(); ui.close(); }
+            if ui.button("Choose screenshot folder…").clicked()
+                && let Some(folder) = rfd::FileDialog::new().pick_folder()
+            {
+                match folder_filter(&folder) {
+                    Ok(filter) => {
+                        self.query.push(' ');
+                        self.query.push_str(&filter);
+                        self.library = true;
+                        self.all_view = false;
+                        self.changed_query();
+                        ui.close();
+                    }
+                    Err(error) => self.notice = Some(format!("{error:#}")),
+                }
             }
             ui.separator();
             caption(ui, "Folders filter screenshots only. Dates use last edit or image capture/modification time.");
-            if quiet(ui, "Clear filters").clicked() && let Ok(query) = Query::parse(&self.query) {
-                self.query = query.terms.join(" "); self.changed_query(); ui.close();
+            if quiet(ui, "Clear filters").clicked() {
+                self.query = terms_without_filters(&self.query).join(" ");
+                self.changed_query();
+                ui.close();
             }
         });
     }
@@ -160,9 +172,19 @@ impl App {
         }
         if ui.button("Add folder…").clicked()
             && let Some(path) = rfd::FileDialog::new().pick_folder()
-            && !self.draft.folders.contains(&path)
         {
-            self.draft.folders.push(path);
+            let path = std::fs::canonicalize(&path).unwrap_or(path);
+            if !self.draft.folders.contains(&path) {
+                let mut candidate = self.draft.clone();
+                candidate.folders.push(path.clone());
+                match candidate
+                    .validate()
+                    .and_then(|()| self.paths.ensure_original_location(&path))
+                {
+                    Ok(()) => self.draft = candidate,
+                    Err(error) => self.notice = Some(format!("{error:#}")),
+                }
+            }
         }
         ui.add_space(20.0);
         if quiet(ui, "Open data directory").clicked()

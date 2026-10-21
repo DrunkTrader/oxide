@@ -133,8 +133,13 @@ impl App {
             for folder in folders {
                 let label = folder.file_name().unwrap_or_default().to_string_lossy();
                 if nav_item(ui, &format!("▸  {label}"), false) {
-                    self.query = format!("in:\"{}\"", folder.display());
-                    self.navigate(true, false, false);
+                    match folder_filter(&folder) {
+                        Ok(filter) => {
+                            self.query = filter;
+                            self.navigate(true, false, false);
+                        }
+                        Err(error) => self.notice = Some(format!("{error:#}")),
+                    }
                 }
             }
         }

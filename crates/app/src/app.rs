@@ -10,7 +10,7 @@ use eframe::egui::{self, Color32, RichText};
 use oxide_core::{
     Line, NoteSummary, Screenshot, WorkerStatus,
     config::{Config, Paths},
-    query::Query,
+    query::{Query, folder_filter, terms_without_filters},
 };
 use winit::window::Window;
 
@@ -263,6 +263,17 @@ impl App {
             }
             Err(e) => {
                 self.query_error = Some(e.to_string());
+                self.notes.clear();
+                self.shots.clear();
+                self.attachments.clear();
+                self.lines.clear();
+                self.linked.clear();
+                self.selected_shots.clear();
+                self.selected_lines.clear();
+                self.detail = None;
+                self.textures.clear();
+                self.loading.clear();
+                self.image_errors.clear();
                 return;
             }
         }
@@ -760,6 +771,16 @@ impl App {
         }
         None
     }
+
+    fn retry_image(&mut self, id: i64, full: bool) {
+        if self.send(Request::Image(id, full)) {
+            self.textures.remove(&(id, full));
+            self.loading.remove(&(id, full));
+            self.image_errors.remove(&(id, full));
+            self.loading.insert((id, full));
+        }
+    }
+
     fn select_shot(&mut self, id: i64) {
         self.textures.retain(|(_, full), _| !*full);
         self.detail = Some(id);
