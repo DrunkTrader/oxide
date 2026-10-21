@@ -9,7 +9,7 @@ use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params, types
 
 use crate::{
     Line, Note, NoteSummary, Screenshot, media, now,
-    query::{Query, like_literal},
+    query::{Query, like_literal, normalize_folder},
 };
 
 pub struct Store {
@@ -755,6 +755,7 @@ fn search_clause(
         values.push(until.into());
     }
     if let (Some(folder), Some(path)) = (&query.folder, path) {
+        let folder = normalize_folder(folder);
         condition.push_str(&format!(
             " AND ({path} LIKE ? ESCAPE '\\' OR {path} LIKE ? ESCAPE '\\')"
         ));

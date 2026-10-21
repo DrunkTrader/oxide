@@ -368,6 +368,9 @@ impl App {
             {
                 self.send(Request::Attach(note, id));
             }
+            if self.image_errors.contains_key(&(id, true)) && quiet(ui, "Retry image").clicked() {
+                self.retry_image(id, true);
+            }
             if quiet(ui, "Retry OCR").clicked() {
                 self.send(Request::Reindex(Some(id)));
             }
@@ -392,10 +395,14 @@ impl App {
                     .max_size(egui::vec2(ui.available_width(), 480.0))
                     .sense(egui::Sense::click_and_drag()),
             );
-            let query = Query::parse(&self.query).unwrap_or_default();
+            let query = Query::parse(&self.query).ok();
             for (index, line) in self.lines.iter().enumerate() {
                 let bounds = line_rect(response.rect, line);
-                if self.selected_lines.contains(&index) || query.matches_line(&line.text) {
+                if self.selected_lines.contains(&index)
+                    || query
+                        .as_ref()
+                        .is_some_and(|query| query.matches_line(&line.text))
+                {
                     highlight(ui, bounds);
                 }
                 let within = response

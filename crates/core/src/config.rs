@@ -1,4 +1,5 @@
 use std::{
+    collections::HashSet,
     fs,
     io::Write,
     path::{Path, PathBuf},
@@ -7,6 +8,8 @@ use std::{
 use anyhow::{Context, Result, bail};
 use directories::{ProjectDirs, UserDirs};
 use serde::{Deserialize, Serialize};
+
+use crate::query::folder_filter;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Paths {
@@ -152,6 +155,7 @@ impl Config {
         if !self.capture_directory.is_absolute() {
             bail!("Capture directory must be an absolute path");
         }
+        let mut normalized_folders = HashSet::new();
         for root in &self.folders {
             if !root.is_absolute()
                 || root.parent().is_none()
@@ -160,6 +164,12 @@ impl Config {
                 bail!(
                     "Choose a specific screenshot folder rather than a filesystem root or home directory"
                 );
+            }
+            folder_filter(root)
+                .with_context(|| format!("Invalid screenshot folder filter: {}", root.display()))?;
+            let normalized = fs::canonicalize(root).unwrap_or_else(|_| root.clone());
+            if !normalized_folders.insert(normalized) {
+                bail!("Screenshot folders must be unique");
             }
         }
         Ok(())
@@ -214,6 +224,20 @@ mod tests {
         fs::write(&path, "not = [valid")?;
         assert!(Config::load(&path).is_err());
         assert_eq!(fs::read_to_string(path)?, "not = [valid");
+        Ok(())
+    }
+
+    #[test]
+    fn canonical_duplicate_folders_are_rejected() -> Result<()> {
+        let temp = tempfile::tempdir()?;
+        let folder = temp.path().join("shots");
+        fs::create_dir(&folder)?;
+        let alias = folder.join("..").join("shots");
+        let config = Config {
+            folders: vec![folder, alias],
+            ..Default::default()
+        };
+        assert!(config.validate().is_err());
         Ok(())
     }
 
