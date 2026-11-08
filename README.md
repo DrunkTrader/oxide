@@ -14,11 +14,11 @@
 </p>
 
 <p align="center">
-  <a href="QUICKSTART.md">Quick start</a> ·
-  <a href="ARCHITECTURE.md">Architecture</a> ·
-  <a href="CONTRIBUTING.md">Contributing</a> ·
-  <a href="SECURITY.md">Security</a> ·
-  <a href="CHANGELOG.md">Changelog</a>
+  <a href="docs/QUICKSTART.md">Quick start</a> ·
+  <a href="docs/ARCHITECTURE.md">Architecture</a> ·
+  <a href="docs/CONTRIBUTING.md">Contributing</a> ·
+  <a href="docs/SECURITY.md">Security</a> ·
+  <a href="docs/CHANGELOG.md">Changelog</a>
 </p>
 
 Oxide keeps your notes and screenshots together and makes the text inside every screenshot searchable. Everything runs on your device: no account, no cloud, and OCR happens in a local process. Capture what you need when you need it; Oxide is not an always-on screen recorder.
@@ -60,7 +60,7 @@ Oxide keeps your notes and screenshots together and makes the text inside every 
 
 ## Getting started
 
-New to Oxide? Follow the **[Quick start](QUICKSTART.md)**.
+New to Oxide? Follow the **[Quick start](docs/QUICKSTART.md)**.
 
 Requirements:
 
@@ -153,7 +153,7 @@ The **Recording exclusion** toggle appears in the header and in Settings.
 - The preference survives restart. Switching does not restart the app or clear notes or search.
 - Oxide always omits its own UI from its screenshots, independently of this toggle.
 
-Exclusion is best-effort. It is **not yet runtime-validated** for OBS, Zoom, Teams or Meet, `PrintWindow`-based capture ignores it, and local software can turn it off. See [SECURITY](SECURITY.md) for the full threat model. Linux builds show exclusion as unavailable.
+Exclusion is best-effort. It is **not yet runtime-validated** for OBS, Zoom, Teams or Meet, `PrintWindow`-based capture ignores it, and local software can turn it off. See [SECURITY](docs/SECURITY.md) for the full threat model. Linux builds show exclusion as unavailable.
 
 If a treatment change fails, Oxide hides private content. Use the tray action **Recording exclusion Off**, or launch:
 
@@ -215,7 +215,7 @@ xvfb-run -a -s "-screen 0 1280x800x24" python3 tests/gui_smoke.py
 - **GUI check:** uses real X11 keyboard events to check autosave, own-UI exclusion from captures, hide and wake, and restart. It needs libXtst, Xvfb, X11 utilities and FFmpeg.
 - **Search benchmark:** covers 10,000 screenshots and 1,000 notes.
 
-See [CONTRIBUTING](CONTRIBUTING.md) for conventions and [ARCHITECTURE](ARCHITECTURE.md) for how the pieces fit.
+See [CONTRIBUTING](docs/CONTRIBUTING.md) for conventions and [ARCHITECTURE](docs/ARCHITECTURE.md) for how the pieces fit.
 
 ## Not yet supported
 
@@ -226,6 +226,18 @@ See [CONTRIBUTING](CONTRIBUTING.md) for conventions and [ARCHITECTURE](ARCHITECT
 - Wayland capture
 - macOS
 - Sync
+
+## Documentation
+
+All project documentation lives in [`docs/`](docs):
+
+| Document | What it covers |
+|---|---|
+| [Quick start](docs/QUICKSTART.md) | Install, first note, first capture, search, where data lives, troubleshooting |
+| [Architecture](docs/ARCHITECTURE.md) | Crates, runtime model, data flow, storage schema, search and platform matrix |
+| [Contributing](docs/CONTRIBUTING.md) | Setup, required checks, data-safety and code conventions, commits |
+| [Security](docs/SECURITY.md) | Threat model and how to report a vulnerability |
+| [Changelog](docs/CHANGELOG.md) | Notable changes per release |
 
 ## License
 

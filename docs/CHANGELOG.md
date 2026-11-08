@@ -13,7 +13,7 @@ All notable changes to Oxide are documented here. The format follows [Keep a Cha
 - Tags on notes and screenshots, a sidebar tag list, and the `tag:` search filter.
 - Manual redaction of selected OCR lines in the original image.
 - Oxide logo as README banner, window and tray icon, embedded Windows executable icon, and installer icon.
-- Project docs: quick start, architecture, contributing, security policy and this changelog.
+- Project docs in `docs/`: quick start, architecture, contributing, security policy and this changelog.
 
 ### Changed
 

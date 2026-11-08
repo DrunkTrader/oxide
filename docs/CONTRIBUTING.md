@@ -76,10 +76,10 @@ cargo clippy --workspace --all-targets --locked --target x86_64-pc-windows-gnu -
 
 - Use [Conventional Commits](https://www.conventionalcommits.org/): `feat:`, `fix:`, `docs:`, `refactor:`, `test:`, `chore:`.
 - One logical change per pull request. Describe user-visible behavior, any schema or config change, and how you tested it (including which platforms).
-- Update the [README](README.md), [ARCHITECTURE](ARCHITECTURE.md) and [CHANGELOG](CHANGELOG.md) when behavior changes.
+- Update the [README](../README.md), [ARCHITECTURE](ARCHITECTURE.md) and [CHANGELOG](CHANGELOG.md) when behavior changes.
 
 ## Reporting bugs and security issues
 
 Open a GitHub issue with steps to reproduce, your OS and display server, and relevant lines from `reader.log`. Never attach your real database or screenshots. For security issues, follow [SECURITY](SECURITY.md) instead of opening a public issue.
 
-By contributing you agree your work is licensed under the project's [GPL-3.0-or-later](LICENSE) license.
+By contributing you agree your work is licensed under the project's [GPL-3.0-or-later](../LICENSE) license.

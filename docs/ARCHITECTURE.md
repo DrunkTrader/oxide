@@ -1,6 +1,6 @@
 # Architecture
 
-This document explains how Oxide is put together: the crates, the processes and threads at runtime, how data flows from a capture to a search result, and the invariants that protect user data. For build commands see the [README](README.md); for workflow see [CONTRIBUTING](CONTRIBUTING.md).
+This document explains how Oxide is put together: the crates, the processes and threads at runtime, how data flows from a capture to a search result, and the invariants that protect user data. For build commands see the [README](../README.md); for workflow see [CONTRIBUTING](CONTRIBUTING.md).
 
 ## Goals that shape the design
 
@@ -17,6 +17,7 @@ crates/
   ocr/     oxide-ocr     OCR engine wrapper
   worker/  oxide-worker  background OCR/indexing process and CLI
   app/     oxide-app     native GUI
+docs/                    project documentation
 assets/                  logo and icons (embedded into the app and installer)
 packaging/windows/       Inno Setup installer definition
 tests/gui_smoke.py       black-box X11 GUI test

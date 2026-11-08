@@ -1,6 +1,6 @@
 # Quick start
 
-Get Oxide running and capture your first searchable screenshot in about five minutes. For details on any step, see the [README](README.md).
+Get Oxide running and capture your first searchable screenshot in about five minutes. For details on any step, see the [README](../README.md).
 
 ## 1. Install
 

@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-Oxide is a local native desktop workspace for notes and OCR-searchable screenshots (Rust, egui/eframe, SQLite), with a Windows-only "recording exclusion" toggle (`WDA_EXCLUDEFROMCAPTURE`). See `README.md` for user-facing behavior and `docs/IMPLEMENTATION_STATUS.md` / `PRD.md` for status and requirements.
+Oxide is a local native desktop workspace for notes and OCR-searchable screenshots (Rust, egui/eframe, SQLite), with a Windows-only "recording exclusion" toggle (`WDA_EXCLUDEFROMCAPTURE`). See `README.md` for user-facing behavior and `docs/` for the quick start, architecture, contributing guide, security policy and changelog.
 
 ## Commands
 
@@ -35,4 +35,4 @@ Key data invariants (from README "Storage and recovery"): notes, screenshot IDs 
 
 Platform scope: capture source and the deny list need X11 or Windows (Wayland exposes no active window); recording exclusion is Windows-only (Linux reports it unavailable); Wayland capture and macOS adapters are not implemented. Oxide always omits its own UI from its screenshots, independent of the exclusion toggle.
 
-See `ARCHITECTURE.md` for runtime and data-flow detail, `CONTRIBUTING.md` for conventions, and `SECURITY.md` for the threat model. Keep `CHANGELOG.md` updated under `[Unreleased]`. On Linux, keep `--data-dir` paths short: the resident socket path must fit `SUN_LEN`. Windows code can be type-checked from Linux with `--target x86_64-pc-windows-gnu` (mingw-w64).
+See `docs/ARCHITECTURE.md` for runtime and data-flow detail, `docs/CONTRIBUTING.md` for conventions, and `docs/SECURITY.md` for the threat model. Keep `docs/CHANGELOG.md` updated under `[Unreleased]`. On Linux, keep `--data-dir` paths short: the resident socket path must fit `SUN_LEN`. Windows code can be type-checked from Linux with `--target x86_64-pc-windows-gnu` (mingw-w64).
