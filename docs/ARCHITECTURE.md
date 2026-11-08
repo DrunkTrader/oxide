@@ -117,7 +117,9 @@ Image originals are files in the capture directory or the user's own folders, ne
 - `app/notes.rs`: note list and editor, tag row.
 - `app/screenshots.rs`: capture menu, library grid, detail view, OCR line selection, redaction.
 - `app/settings.rs`: settings window and filters menu.
-- `app/design.rs`: the design system. `Palette` (light and dark tokens), `apply_theme`, button styles (`primary`, `destructive`, `quiet`), and motion primitives (`entrance`, `hover_card`, `list_row`, `status_dot`). Add visual constants here, not inline.
+- `app/design.rs`: the design system. `Palette` (light and dark tokens), `apply_theme`, button styles (`primary`, `destructive`, `quiet`), form building blocks (`form_group`, `form_row`, `segmented`, `search_field`), and motion primitives (`entrance`, `stagger`, `hover_card`, `list_row` + `nav_indicator`, `shimmer`, `toast`, `status_dot`). Add visual constants here, not inline.
+
+Settings is a modal sheet inside the main window rather than a separate native window: recording exclusion protects Oxide's own window, and a second window would need its own treatment or could appear in a screen share.
 
 ## Platform matrix
 

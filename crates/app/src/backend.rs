@@ -470,7 +470,7 @@ fn save_capture(
 fn read_text(paths: &Paths, image: &DynamicImage) -> Result<Vec<String>> {
     let temp = tempfile::Builder::new().suffix(".png").tempfile()?;
     image.save_with_format(temp.path(), image::ImageFormat::Png)?;
-    let output = std::process::Command::new(crate::lifecycle::worker_binary()?)
+    let output = platform::command(crate::lifecycle::worker_binary()?)
         .arg("--data-dir")
         .arg(&paths.data)
         .arg("--ocr")

@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Oxide
+GenericName=Notes and screenshots
+Comment=Local notes and OCR-searchable screenshots
+Exec=oxide-app
+Icon=oxide
+Terminal=false
+Categories=Office;Utility;
+Keywords=notes;screenshot;ocr;search;
+StartupNotify=true

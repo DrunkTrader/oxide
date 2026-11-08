@@ -46,7 +46,7 @@ Oxide keeps your notes and screenshots together and makes the text inside every 
 
 **Desktop integration**
 - Configurable global shortcuts, a resident background instance, optional login startup, and a Windows tray icon
-- Light, dark or system theme
+- Light and dark themes (or follow the system), switchable from the header, with a violet accent from the Oxide logo
 
 ## Platform support
 
@@ -57,6 +57,21 @@ Oxide keeps your notes and screenshots together and makes the text inside every 
 | Capture source and Never capture list | Yes | Yes | No | Not built |
 | Recording exclusion | Yes | No | No | Not built |
 | Tray icon | Yes | No | No | Not built |
+
+## Install
+
+Download the file for your system from the [latest release](https://github.com/DrunkTrader/oxide/releases/latest):
+
+| Your system | File | Install |
+|---|---|---|
+| Debian, Ubuntu, Linux Mint, Pop!_OS | `oxide_<version>_amd64.deb` | `sudo apt install ./oxide_<version>_amd64.deb` |
+| Fedora, RHEL, openSUSE | `oxide-<version>-1.x86_64.rpm` | `sudo dnf install ./oxide-<version>-1.x86_64.rpm` (openSUSE: `sudo zypper install ./…`) |
+| Any Linux distribution | `Oxide-<version>-x86_64.AppImage` | `chmod +x Oxide-*.AppImage && ./Oxide-*.AppImage` |
+| Any Linux distribution | `oxide-<version>-linux-x86_64.tar.gz` | extract and run `./oxide-app` (keep `oxide-worker` beside it) |
+| Windows 10/11 | `Oxide-Setup-<version>.exe` | run the installer (per user, no admin rights) |
+| Windows 10/11, portable | `oxide-<version>-windows-x86_64.zip` | extract and run `oxide-app.exe` |
+
+Each release lists `SHA256SUMS.txt` to verify downloads. Releases are built by `.github/workflows/release.yml` when a `v*` tag is pushed.
 
 ## Getting started
 
@@ -99,7 +114,7 @@ The installer (`dist/Oxide-Setup-<version>.exe`) installs per user, adds a Start
 6. Tag notes and screenshots. Tags appear in the sidebar. **Today** opens or creates a note titled with the current date.
 7. Export a note to Markdown with copied images and relative links. Notes go to a persistent note trash; images go to the recoverable system trash after confirmation.
 
-Markdown is accepted as text; there is no rich-text editor or rendered preview yet.
+Notes are written in Markdown. Switch the editor between **Edit** and **Preview** (Ctrl/Cmd+E) to see headings, lists, task lists, tables, quotes and code rendered; ticking a task-list checkbox in Preview updates the note. The preview never loads remote images.
 
 ### Shortcuts
 
@@ -113,6 +128,7 @@ Markdown is accepted as text; there is no rich-text editor or rendered preview y
 | Summon and start a new note | Alt+Shift+N |
 | New note | Ctrl+N / Cmd+N |
 | Save now | Ctrl+S / Cmd+S |
+| Edit / Preview Markdown | Ctrl+E / Cmd+E |
 | Search focus | Ctrl+K or Ctrl+F / Cmd+K or Cmd+F |
 | Close panel / hide | Escape |
 
@@ -141,7 +157,7 @@ Semantic or approximate search is not part of this build.
 ### Capture privacy
 
 - **Capture source.** Each capture records the foreground app and window title (Windows and X11). The detail view shows it, and `app:` filters by it. Oxide's own window is never recorded as a source.
-- **Never capture.** Settings → General skips a capture while the active window's app or title contains a listed entry. Defaults cover common password managers and private-browsing windows. Wayland exposes no active window, so the list cannot match there.
+- **Never capture.** Settings → Privacy skips a capture while the active window's app or title contains a listed entry. Defaults cover common password managers and private-browsing windows. Wayland exposes no active window, so the list cannot match there.
 - **Redaction.** **Redact selected…** in the image detail view paints opaque black over the selected OCR lines. After confirmation it rewrites the original file in place, removes the text from search, and reads the image again. This changes the original image and cannot be undone.
 
 ### Recording exclusion (Windows)
@@ -219,7 +235,6 @@ See [CONTRIBUTING](docs/CONTRIBUTING.md) for conventions and [ARCHITECTURE](docs
 
 ## Not yet supported
 
-- Rendered Markdown preview
 - Encryption at rest
 - Multilingual OCR
 - Semantic search
@@ -241,4 +256,4 @@ All project documentation lives in [`docs/`](docs):
 
 ## License
 
-Oxide is licensed under the [GNU General Public License v3.0 or later](LICENSE).
+Oxide is licensed under the [GNU General Public License v3.0 or later](LICENSE). It bundles the Inter typeface (`assets/fonts/`, SIL Open Font License 1.1) and a patched copy of `egui_commonmark_backend` (`vendor/`, MIT or Apache-2.0).

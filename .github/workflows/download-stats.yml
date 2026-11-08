@@ -1,0 +1,56 @@
+name: Download stats
+# GitHub only keeps a running total per release file, so this saves a daily snapshot:
+# downloads.csv on the `stats` branch (date, tag, platform, file, downloads), plus a
+# per-platform summary on the run page. Scheduled runs only happen from the default branch.
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  snapshot:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Collect download counts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          today=$(date -u +%F)
+          gh api --paginate "repos/${{ github.repository }}/releases?per_page=100" \
+            --jq '.[] | .tag_name as $t | .assets[] | [$t, .name, .download_count] | @tsv' > counts.tsv
+          platform() {
+            case "$1" in
+              *.deb) echo "Debian/Ubuntu (.deb)" ;;
+              *.rpm) echo "Fedora/RHEL/openSUSE (.rpm)" ;;
+              *.AppImage) echo "Any Linux (AppImage)" ;;
+              *linux*.tar.gz) echo "Any Linux (tar.gz)" ;;
+              *Setup*.exe) echo "Windows (installer)" ;;
+              *windows*.zip) echo "Windows (portable)" ;;
+              *) echo "other" ;;
+            esac
+          }
+          : > rows.csv
+          while IFS="$(printf '\t')" read -r tag name count; do
+            case "$name" in SHA256SUMS*) continue ;; esac
+            echo "$today,$tag,\"$(platform "$name")\",$name,$count" >> rows.csv
+          done < counts.tsv
+          {
+            echo "## Downloads by platform ($today)"
+            echo
+            echo "| Platform | Downloads |"
+            echo "|---|---|"
+            awk -F, '{ gsub(/"/, "", $3); s[$3] += $5 } END { for (p in s) printf "| %s | %d |\n", p, s[p] }' rows.csv | sort
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Append to downloads.csv on the stats branch
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          url="https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git"
+          if git clone --quiet --depth 1 --branch stats "$url" stats 2>/dev/null; then :; else
+            git init --quiet stats && git -C stats checkout --quiet -b stats && git -C stats remote add origin "$url"
+            echo "date,tag,platform,file,downloads" > stats/downloads.csv
+          fi
+          cat rows.csv >> stats/downloads.csv
+          cd stats && git add downloads.csv
+          git diff --cached --quiet || { git commit --quiet -m "stats: $(date -u +%F)" && git push --quiet origin stats; }

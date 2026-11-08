@@ -2,7 +2,7 @@ use std::{
     fs::{self, File},
     io::{BufRead, BufReader, Read, Write},
     path::PathBuf,
-    process::{Child, Command, Stdio},
+    process::{Child, Stdio},
     sync::{
         Arc, OnceLock,
         mpsc::{self, Receiver, SyncSender},
@@ -373,7 +373,7 @@ impl Worker {
             .append(true)
             .open(self.paths.data.join("reader.log"))?;
         self.child = Some(
-            Command::new(binary)
+            crate::platform::command(binary)
                 .arg("--data-dir")
                 .arg(&self.paths.data)
                 .stdout(Stdio::null())

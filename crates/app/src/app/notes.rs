@@ -52,7 +52,7 @@ impl App {
                                     .to_string()
                             })
                             .unwrap_or_default();
-                        let detail = format!("{date}   {}", note.excerpt.replace('\n', " ").trim());
+                        let detail = format!("{date}   {}", plain_excerpt(&note.excerpt));
                         if list_row(ui, title, detail.trim(), current == Some(note.id)) {
                             clicked = Some(note.id);
                         }
@@ -62,6 +62,7 @@ impl App {
                     });
                 }
             });
+        nav_indicator(ui, "notes");
         if let Some(id) = clicked {
             self.defer(AfterSave::Load(id));
         }
@@ -101,6 +102,11 @@ impl App {
                     "Notes / Editor"
                 },
             );
+            ui.add_space(8.0);
+            let mut mode = usize::from(self.preview);
+            if segmented(ui, "note-mode", &["Edit", "Preview"], &mut mode) {
+                self.preview = mode == 1;
+            }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.menu_button("Capture", |ui| self.capture_controls(ui));
                 ui.menu_button("Actions", |ui| {
@@ -171,11 +177,22 @@ impl App {
                     .id_salt("note-editor")
                     .max_height((ui.available_height() - 154.0).max(90.0))
                     .show(ui, |ui| {
+                        if self.preview {
+                            // Rendered Markdown. Ticking a task-list checkbox edits the source; no remote images load.
+                            entrance(ui, "note-mode", (id, true));
+                            if note.body.trim().is_empty() {
+                                caption(ui, "Nothing to preview yet. Switch to Edit to write.");
+                            }
+                            let before = note.body.clone();
+                            egui_commonmark::CommonMarkViewer::new().show_mut(ui, &mut self.md_cache, &mut note.body);
+                            changed |= note.body != before;
+                            return;
+                        }
                         changed |= ui
                             .add(
                                 egui::TextEdit::multiline(&mut note.body)
                                     .id(egui::Id::new(("note-body", id)))
-                                    .hint_text("Write a note…\n\nMarkdown is welcome here.")
+                                    .hint_text("Write a note…\n\nMarkdown works here: switch to Preview to see it rendered.")
                                     .font(egui::FontId::proportional(16.0))
                                     .frame(egui::Frame::NONE)
                                     .margin(egui::vec2(0.0, 4.0))
@@ -282,4 +299,19 @@ impl App {
             ui.close();
         }
     }
+}
+
+/// The list excerpt without Markdown syntax, so "# Title **bold**" reads as "Title bold".
+fn plain_excerpt(excerpt: &str) -> String {
+    let words: Vec<&str> = excerpt
+        .split_whitespace()
+        .filter(|w| !w.chars().all(|c| "#>-*+|`[]x".contains(c)))
+        .collect();
+    words
+        .join(" ")
+        .replace(['*', '`', '|'], "")
+        .replace("[x]", "")
+        .replace("[ ]", "")
+        .trim()
+        .to_owned()
 }

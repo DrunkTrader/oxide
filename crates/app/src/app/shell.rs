@@ -45,7 +45,7 @@ impl App {
                     }
                 },
             );
-            let reserve = if self.compact { 120.0 } else { 300.0 };
+            let reserve = if self.compact { 120.0 } else { 520.0 };
             ui.add_space((ui.available_width() - reserve - 380.0).max(8.0));
             let width = (ui.available_width() - reserve).clamp(100.0, 380.0);
             let hint = if cfg!(target_os = "macos") {
@@ -53,12 +53,14 @@ impl App {
             } else {
                 "Ctrl K"
             };
-            let search = egui::TextEdit::singleline(&mut self.query)
-                .id(egui::Id::new("search"))
-                .hint_text(format!("Search your workspace…    {hint}"))
-                .desired_width(width)
-                .margin(egui::vec2(12.0, 7.0));
-            if ui.add(search).changed() {
+            if search_field(
+                ui,
+                &mut self.query,
+                width,
+                &format!("Search notes and screenshots    {hint}"),
+            )
+            .changed()
+            {
                 self.changed_query();
             }
             if quiet(ui, "+")
@@ -69,6 +71,18 @@ impl App {
             }
             if !self.compact {
                 self.privacy_control(ui);
+            }
+            if !self.compact {
+                let themes = ["system", "light", "dark"];
+                let mut i = themes
+                    .iter()
+                    .position(|t| *t == self.config.theme)
+                    .unwrap_or(0);
+                if segmented(ui, "theme-quick", &["Auto", "Light", "Dark"], &mut i) {
+                    let mut config = self.config.clone();
+                    config.theme = themes[i].into();
+                    self.save_preferences(config, false);
+                }
             }
             if quiet(ui, "Settings").clicked() {
                 self.draft = self.config.clone();
@@ -151,6 +165,7 @@ impl App {
             self.navigate(false, false, false);
             self.defer(AfterSave::Daily);
         }
+        nav_indicator(ui, "workspace");
         if !self.all_tags.is_empty() {
             ui.add_space(22.0);
             caption(ui, "Tags");
@@ -161,6 +176,7 @@ impl App {
                     self.navigate(true, true, false);
                 }
             }
+            nav_indicator(ui, "tags");
         }
         ui.add_space(22.0);
         caption(ui, "Collections");
@@ -212,6 +228,7 @@ impl App {
         if nav_item(ui, "Note trash", self.trash_view) {
             self.navigate(false, false, true);
         }
+        nav_indicator(ui, "recent");
     }
 
     pub(super) fn new_note(&mut self) {
@@ -277,13 +294,6 @@ impl App {
         if let Some(error) = &self.status.error {
             caption(ui, error);
         }
-        if let Some(message) = self.notice.clone() {
-            ui.horizontal_wrapped(|ui| {
-                ui.label(RichText::new(message).size(12.0));
-                if quiet(ui, "Dismiss").clicked() {
-                    self.notice = None;
-                }
-            });
-        }
+        // Notices are drawn as a floating toast (see `App::ui`).
     }
 }
