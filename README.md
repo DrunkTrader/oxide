@@ -141,6 +141,7 @@ Windows installer definition: `packaging/windows/oxide.iss` (Inno Setup 6; build
 
 ## Documentation
 
+- [Quick start](QUICKSTART.md): install, first note, first capture, search
 - [Architecture](ARCHITECTURE.md): crates, runtime model, data flow, storage and platform matrix
 - [Contributing](CONTRIBUTING.md): setup, checks and conventions
 - [Security](SECURITY.md): threat model and how to report vulnerabilities
