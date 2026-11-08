@@ -16,11 +16,19 @@ impl App {
             });
         ui.add_enabled_ui(!self.capture_pending && self.capture.is_none(), |ui| {
             if ui.button("Capture region").clicked() {
-                self.start_capture(true);
+                self.start_capture(true, Target::Note);
                 ui.close();
             }
             if ui.button("Capture display").clicked() {
-                self.start_capture(false);
+                self.start_capture(false, Target::Note);
+                ui.close();
+            }
+            if ui.button("Region into a new note").clicked() {
+                self.start_capture(true, Target::NewNote);
+                ui.close();
+            }
+            if ui.button("Copy text from region").clicked() {
+                self.start_capture(true, Target::Text);
                 ui.close();
             }
         });
@@ -130,7 +138,7 @@ impl App {
             );
             ui.add_space(16.0);
             if self.query.is_empty() && primary(ui, "Capture a region").clicked() {
-                self.start_capture(true);
+                self.start_capture(true, Target::Note);
             }
             return;
         }
@@ -151,21 +159,20 @@ impl App {
                 }
             });
         if self.shots.len() >= self.limit && quiet(ui, "Load more screenshots").clicked() {
-            self.limit += 50;
-            self.refresh_pending = false;
-            self.refresh();
+            self.load_more();
         }
     }
 
     fn shot_tile(&mut self, ui: &mut egui::Ui, shot: &Screenshot) {
         let p = Palette::of(ui);
-        card(ui).show(ui, |ui| {
-            ui.set_width(214.0);
+        hover_card(ui, egui::Id::new(("shot-card", shot.id)), |ui| {
+            ui.set_width(218.0);
             ui.set_min_height(194.0);
             if let Some((texture, size)) = self.picture(shot.id, false) {
                 let response = ui.add(
                     egui::Image::new((texture, size))
-                        .max_size(egui::vec2(210.0, 132.0))
+                        .corner_radius(8)
+                        .max_size(egui::vec2(218.0, 136.0))
                         .sense(egui::Sense::click()),
                 );
                 if let Some(texture) = self.textures.get(&(shot.id, false))
@@ -182,7 +189,7 @@ impl App {
                 }
             } else if ui
                 .add_sized(
-                    [210.0, 132.0],
+                    [218.0, 136.0],
                     egui::Button::new(if self.image_errors.contains_key(&(shot.id, false)) {
                         "Image unavailable"
                     } else {
@@ -213,24 +220,28 @@ impl App {
                     }
                 }
             });
-            caption(
-                ui,
-                if shot.available {
-                    match shot.ocr_state.as_str() {
-                        "ready" => "Text indexed",
-                        "pending" => "OCR pending",
-                        "no_text" => "No text found",
-                        "failed" => "OCR failed",
-                        "invalid" => "Invalid image",
-                        other => other,
-                    }
-                } else {
-                    "Original unavailable"
-                },
-            );
-            if !shot.available {
-                ui.colored_label(p.danger, "Original unavailable");
-            }
+            let state = if shot.available {
+                match shot.ocr_state.as_str() {
+                    "ready" => "Text indexed",
+                    "pending" => "OCR pending",
+                    "no_text" => "No text found",
+                    "failed" => "OCR failed",
+                    "invalid" => "Invalid image",
+                    other => other,
+                }
+            } else {
+                "Original unavailable"
+            };
+            ui.horizontal(|ui| {
+                let color = match shot.ocr_state.as_str() {
+                    _ if !shot.available => p.danger,
+                    "ready" => p.success,
+                    "failed" | "invalid" => p.danger,
+                    _ => p.muted,
+                };
+                status_dot(ui, color, shot.available && shot.ocr_state == "pending");
+                caption(ui, state);
+            });
         });
     }
 
@@ -287,9 +298,19 @@ impl App {
                             self.notice = Some(format!("Cannot reveal folder: {error}"));
                         }
                     });
+                    if let Some(app) = shot.source_app.as_deref().filter(|app| !app.is_empty()) {
+                        let title = shot.source_title.as_deref().unwrap_or_default();
+                        caption(ui, format!("From {app} · {title}"));
+                    }
                     if let Some(error) = &shot.ocr_error {
                         ui.colored_label(p.danger, error);
                     }
+                    let mut input = std::mem::take(&mut self.tag_input);
+                    if let Some(tags) = tag_row(ui, &self.shot_tags, &mut input) {
+                        self.shot_tags = tags.clone();
+                        self.send(Request::SetShotTags(id, tags));
+                    }
+                    self.tag_input = input;
                 }
                 let mut chosen = None;
                 ui.horizontal_wrapped(|ui| {
@@ -368,8 +389,25 @@ impl App {
             {
                 self.send(Request::Attach(note, id));
             }
+            if self.image_errors.contains_key(&(id, true)) && quiet(ui, "Retry image").clicked() {
+                self.retry_image(id, true);
+            }
             if quiet(ui, "Retry OCR").clicked() {
                 self.send(Request::Reindex(Some(id)));
+            }
+            if quiet(ui, "Redact selected…").clicked() {
+                let lines: Vec<Line> = self
+                    .lines
+                    .iter()
+                    .enumerate()
+                    .filter(|(index, _)| self.selected_lines.contains(index))
+                    .map(|(_, line)| line.clone())
+                    .collect();
+                if lines.is_empty() {
+                    self.notice = Some("Select recognized lines to redact first".into());
+                } else {
+                    self.confirmation = Some(Confirmation::Redact(id, lines));
+                }
             }
             if ui
                 .add(
@@ -392,10 +430,14 @@ impl App {
                     .max_size(egui::vec2(ui.available_width(), 480.0))
                     .sense(egui::Sense::click_and_drag()),
             );
-            let query = Query::parse(&self.query).unwrap_or_default();
+            let query = Query::parse(&self.query).ok();
             for (index, line) in self.lines.iter().enumerate() {
                 let bounds = line_rect(response.rect, line);
-                if self.selected_lines.contains(&index) || query.matches_line(&line.text) {
+                if self.selected_lines.contains(&index)
+                    || query
+                        .as_ref()
+                        .is_some_and(|query| query.matches_line(&line.text))
+                {
                     highlight(ui, bounds);
                 }
                 let within = response
@@ -444,7 +486,43 @@ fn highlight(ui: &egui::Ui, bounds: egui::Rect) {
     ui.painter().rect_stroke(
         bounds,
         1.0,
-        egui::Stroke::new(1.5, ACCENT),
+        egui::Stroke::new(1.5, Palette::of(ui).accent),
         egui::StrokeKind::Inside,
     );
+}
+
+/// Tag chips (click to remove) plus an input; returns the new tag set when it changes.
+pub(super) fn tag_row(
+    ui: &mut egui::Ui,
+    tags: &[String],
+    input: &mut String,
+) -> Option<Vec<String>> {
+    let mut next = None;
+    ui.horizontal_wrapped(|ui| {
+        for tag in tags {
+            if quiet(ui, &format!("#{tag}  ×"))
+                .on_hover_text("Remove tag")
+                .clicked()
+            {
+                next = Some(tags.iter().filter(|t| *t != tag).cloned().collect());
+            }
+        }
+        let response = ui.add(
+            egui::TextEdit::singleline(input)
+                .hint_text("Add tag")
+                .desired_width(110.0),
+        );
+        if response.lost_focus()
+            && ui.input(|i| i.key_pressed(egui::Key::Enter))
+            && let Some(tag) = normalize_tag(input)
+        {
+            input.clear();
+            if !tags.contains(&tag) {
+                let mut all = tags.to_vec();
+                all.push(tag);
+                next = Some(all);
+            }
+        }
+    });
+    next
 }

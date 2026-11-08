@@ -1,4 +1,5 @@
 use std::{
+    collections::HashSet,
     fs,
     io::Write,
     path::{Path, PathBuf},
@@ -7,6 +8,8 @@ use std::{
 use anyhow::{Context, Result, bail};
 use directories::{ProjectDirs, UserDirs};
 use serde::{Deserialize, Serialize};
+
+use crate::query::folder_filter;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Paths {
@@ -102,6 +105,10 @@ pub struct Config {
     pub hide_shortcut: String,
     pub capture_shortcut: String,
     pub display_shortcut: String,
+    pub text_shortcut: String,
+    pub note_shortcut: String,
+    /// Case-insensitive fragments of app names or window titles that are never captured.
+    pub capture_deny: Vec<String>,
 }
 
 impl Default for Config {
@@ -124,11 +131,35 @@ impl Default for Config {
             hide_shortcut: "Alt+Shift+H".into(),
             capture_shortcut: "Alt+Shift+R".into(),
             display_shortcut: "Alt+Shift+D".into(),
+            text_shortcut: "Alt+Shift+T".into(),
+            note_shortcut: "Alt+Shift+N".into(),
+            capture_deny: [
+                "1Password",
+                "Bitwarden",
+                "KeePass",
+                "InPrivate",
+                "Incognito",
+                "Private Browsing",
+            ]
+            .map(String::from)
+            .into(),
         }
     }
 }
 
 impl Config {
+    /// The deny-list entry matching this capture source, if any.
+    pub fn denied(&self, app: &str, title: &str) -> Option<&str> {
+        let (app, title) = (app.to_lowercase(), title.to_lowercase());
+        self.capture_deny
+            .iter()
+            .find(|entry| {
+                let entry = entry.trim().to_lowercase();
+                app.contains(&entry) || title.contains(&entry)
+            })
+            .map(String::as_str)
+    }
+
     pub fn load(path: &Path) -> Result<Option<Self>> {
         match fs::read_to_string(path) {
             Ok(text) => {
@@ -152,6 +183,15 @@ impl Config {
         if !self.capture_directory.is_absolute() {
             bail!("Capture directory must be an absolute path");
         }
+        if self.capture_deny.len() > 100
+            || self
+                .capture_deny
+                .iter()
+                .any(|entry| entry.trim().is_empty() || entry.len() > 128)
+        {
+            bail!("Capture deny list entries must be 1-128 characters, at most 100 entries");
+        }
+        let mut normalized_folders = HashSet::new();
         for root in &self.folders {
             if !root.is_absolute()
                 || root.parent().is_none()
@@ -160,6 +200,12 @@ impl Config {
                 bail!(
                     "Choose a specific screenshot folder rather than a filesystem root or home directory"
                 );
+            }
+            folder_filter(root)
+                .with_context(|| format!("Invalid screenshot folder filter: {}", root.display()))?;
+            let normalized = fs::canonicalize(root).unwrap_or_else(|_| root.clone());
+            if !normalized_folders.insert(normalized) {
+                bail!("Screenshot folders must be unique");
             }
         }
         Ok(())
@@ -208,12 +254,37 @@ mod tests {
         Ok(())
     }
     #[test]
+    fn deny_list_matches_app_or_title_case_insensitively() {
+        let config = Config::default();
+        assert_eq!(config.denied("1password", "Vault"), Some("1Password"));
+        assert_eq!(
+            config.denied("msedge", "Bank - InPrivate - Microsoft Edge"),
+            Some("InPrivate")
+        );
+        assert_eq!(config.denied("code", "main.rs"), None);
+    }
+
+    #[test]
     fn malformed_configuration_is_not_unconfigured() -> Result<()> {
         let temp = tempfile::tempdir()?;
         let path = temp.path().join("config.toml");
         fs::write(&path, "not = [valid")?;
         assert!(Config::load(&path).is_err());
         assert_eq!(fs::read_to_string(path)?, "not = [valid");
+        Ok(())
+    }
+
+    #[test]
+    fn canonical_duplicate_folders_are_rejected() -> Result<()> {
+        let temp = tempfile::tempdir()?;
+        let folder = temp.path().join("shots");
+        fs::create_dir(&folder)?;
+        let alias = folder.join("..").join("shots");
+        let config = Config {
+            folders: vec![folder, alias],
+            ..Default::default()
+        };
+        assert!(config.validate().is_err());
         Ok(())
     }
 
@@ -233,7 +304,7 @@ mod tests {
         )?;
         let child = Paths::discover(Some(paths.data))?;
         assert_eq!(child.config, separate.config);
-        assert_eq!(child.cache, separate.cache);
+        assert_eq!(child.cache, fs::canonicalize(&separate.cache)?);
         Ok(())
     }
 }

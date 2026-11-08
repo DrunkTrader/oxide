@@ -128,7 +128,7 @@ def main():
             print("PASS: native typing → acknowledged autosave → own-UI-free capture → attachment → hide/resident wake → restart")
             print(f"Peak native child RSS (Linux, OCR child disabled): {resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss / 1024:.1f} MiB")
         except Exception:
-            subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "x11grab", "-video_size", "1280x800", "-i", os.environ["DISPLAY"], "-frames:v", "1", "/tmp/omnirush/oxide-gui-failure.png"], check=False)
+            subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "x11grab", "-video_size", "1280x800", "-i", os.environ["DISPLAY"], "-frames:v", "1", str(Path(os.environ.get("RUNNER_TEMP", tempfile.gettempdir())) / "oxide-gui-failure.png")], check=False)
             raise
         finally:
             if process.poll() is None:

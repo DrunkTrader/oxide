@@ -3,10 +3,74 @@ use image::{DynamicImage, RgbaImage};
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use x11rb::{
     connection::Connection,
-    protocol::xproto::{ConnectionExt, ImageFormat, ImageOrder},
+    protocol::xproto::{AtomEnum, ConnectionExt, ImageFormat, ImageOrder},
 };
 
-use super::Display;
+use super::{Display, Source};
+
+pub fn foreground_source() -> Result<Option<Source>> {
+    let (connection, index) = x11rb::connect(None)?;
+    let root = connection.setup().roots[index].root;
+    let atom = |name: &str| -> Result<u32> {
+        Ok(connection
+            .intern_atom(false, name.as_bytes())?
+            .reply()?
+            .atom)
+    };
+    let text = |window: u32, property: u32, kind: u32| -> Result<Vec<u8>> {
+        Ok(connection
+            .get_property(false, window, property, kind, 0, 1024)?
+            .reply()?
+            .value)
+    };
+    let active = connection
+        .get_property(
+            false,
+            root,
+            atom("_NET_ACTIVE_WINDOW")?,
+            AtomEnum::WINDOW,
+            0,
+            1,
+        )?
+        .reply()?;
+    let Some(window) = active
+        .value32()
+        .and_then(|mut v| v.next())
+        .filter(|w| *w != 0)
+    else {
+        return Ok(None);
+    };
+    let pid = connection
+        .get_property(
+            false,
+            window,
+            atom("_NET_WM_PID")?,
+            AtomEnum::CARDINAL,
+            0,
+            1,
+        )?
+        .reply()?
+        .value32()
+        .and_then(|mut v| v.next());
+    if pid == Some(std::process::id()) {
+        return Ok(None);
+    }
+    let mut title = text(window, atom("_NET_WM_NAME")?, atom("UTF8_STRING")?)?;
+    if title.is_empty() {
+        title = text(window, AtomEnum::WM_NAME.into(), AtomEnum::STRING.into())?;
+    }
+    // WM_CLASS is "instance\0Class\0"; the class names the application.
+    let class = text(window, AtomEnum::WM_CLASS.into(), AtomEnum::STRING.into())?;
+    let app = class
+        .split(|byte| *byte == 0)
+        .rfind(|part| !part.is_empty())
+        .map(|part| String::from_utf8_lossy(part).into_owned())
+        .unwrap_or_default();
+    Ok(Some(Source {
+        app,
+        title: String::from_utf8_lossy(&title).into_owned(),
+    }))
+}
 
 pub fn unmap(window: &winit::window::Window) -> Result<()> {
     let id = match window.window_handle()?.as_raw() {

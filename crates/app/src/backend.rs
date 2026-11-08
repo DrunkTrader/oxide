@@ -16,7 +16,7 @@ use oxide_core::{
     store::Store,
 };
 
-use crate::platform::{self, Display};
+use crate::platform::{self, Display, Source};
 
 pub enum Request {
     Snapshot {
@@ -37,7 +37,14 @@ pub enum Request {
     Import(PathBuf, Option<i64>),
     Paste(Option<i64>, PathBuf),
     Capture(Display),
-    SaveCapture(DynamicImage, Option<i64>, PathBuf),
+    SaveCapture(DynamicImage, Option<i64>, PathBuf, Option<Source>),
+    CaptureToNewNote(DynamicImage, PathBuf, Option<Source>),
+    /// OCR a selection and return its text without saving the image.
+    ReadText(DynamicImage),
+    DailyNote(String),
+    SetNoteTags(i64, Vec<String>),
+    SetShotTags(i64, Vec<String>),
+    Redact(i64, Vec<Line>),
     Image(i64, bool),
     Reindex(Option<i64>),
     TrashShots(Vec<i64>),
@@ -59,6 +66,9 @@ pub struct Snapshot {
     pub linked: Vec<NoteSummary>,
     pub status: WorkerStatus,
     pub note: Option<oxide_core::Note>,
+    pub note_tags: Vec<String>,
+    pub shot_tags: Vec<String>,
+    pub all_tags: Vec<String>,
 }
 
 pub enum Response {
@@ -67,6 +77,7 @@ pub enum Response {
     Saved(u64, Note),
     SaveFailed(String),
     Captured(DynamicImage),
+    Text(Vec<String>),
     CaptureFailed(String),
     Image {
         id: i64,
@@ -113,6 +124,28 @@ impl Backend {
                 for request in requests {
                     if matches!(request, Request::Shutdown) {
                         break;
+                    }
+                    // OCR takes seconds; keep it off the storage thread so saves stay prompt.
+                    if let Request::ReadText(image) = request {
+                        let (replies, context, paths) =
+                            (replies.clone(), context.clone(), paths.clone());
+                        let spawned = thread::Builder::new().name("oxide-read-text".into()).spawn(
+                            move || {
+                                let response = match read_text(&paths, &image) {
+                                    Ok(lines) => Response::Text(lines),
+                                    Err(e) => Response::Error(format!("{e:#}")),
+                                };
+                                if replies.send(response).is_ok() {
+                                    context.request_repaint();
+                                }
+                            },
+                        );
+                        if let Err(e) = spawned {
+                            emit(Response::Error(format!(
+                                "Cannot start text recognition: {e}"
+                            )));
+                        }
+                        continue;
                     }
                     let response = handle_request(request, &mut store, &paths);
                     emit(response);
@@ -196,6 +229,14 @@ fn operation(request: Request, store: &mut Store, paths: &Paths) -> Result<Respo
             } else {
                 Vec::new()
             };
+            let note_tags = match note {
+                Some(id) => store.note_tags(id)?,
+                None => Vec::new(),
+            };
+            let shot_tags = match shot {
+                Some(id) => store.shot_tags(id)?,
+                None => Vec::new(),
+            };
             Ok(Response::Snapshot(Snapshot {
                 generation,
                 revision: store.revision()?,
@@ -210,6 +251,9 @@ fn operation(request: Request, store: &mut Store, paths: &Paths) -> Result<Respo
                 } else {
                     None
                 },
+                note_tags,
+                shot_tags,
+                all_tags: store.all_tags()?,
             }))
         }
         Request::NewNote => Ok(Response::Note(store.new_note()?)),
@@ -273,10 +317,50 @@ fn operation(request: Request, store: &mut Store, paths: &Paths) -> Result<Respo
                 DynamicImage::ImageRgba8(rgba),
                 note,
                 &destination,
+                None,
             )
         }
-        Request::SaveCapture(image, note, destination) => {
-            save_capture(store, paths, image, note, &destination)
+        Request::SaveCapture(image, note, destination, source) => {
+            save_capture(store, paths, image, note, &destination, source)
+        }
+        Request::CaptureToNewNote(image, destination, source) => {
+            let title = chrono::Local::now()
+                .format("Screenshot %b %-d, %H:%M")
+                .to_string();
+            let note = store.new_note_titled(&title)?;
+            save_capture(store, paths, image, Some(note.id), &destination, source)?;
+            Ok(Response::Note(
+                store.note(note.id)?.context("New note could not be read")?,
+            ))
+        }
+        Request::DailyNote(title) => Ok(Response::Note(store.daily_note(&title)?)),
+        Request::SetNoteTags(id, tags) => {
+            store.set_note_tags(id, &tags)?;
+            Ok(Response::Changed("Tags updated".into()))
+        }
+        Request::SetShotTags(id, tags) => {
+            store.set_shot_tags(id, &tags)?;
+            Ok(Response::Changed("Tags updated".into()))
+        }
+        Request::Redact(id, lines) => {
+            let shot = store
+                .screenshot(id)?
+                .context("Screenshot no longer exists")?;
+            anyhow::ensure!(shot.available, "The original is unavailable");
+            let path = PathBuf::from(&shot.path);
+            paths.ensure_original_location(&path)?;
+            let redacted = media::redact(&media::load_image(&path)?, &lines);
+            media::replace_image(&path, &redacted)?;
+            store.redacted(id).context(
+                "The original was redacted, but the library update failed; reindex to repair it",
+            )?;
+            if let Err(error) = media::thumbnail(paths, id, &redacted, &path) {
+                log::warn!("Thumbnail refresh after redaction: {error:#}");
+            }
+            Ok(Response::Changed(format!(
+                "Redacted {} line(s) in the original; its text will be read again",
+                lines.len()
+            )))
         }
         Request::Reindex(id) => {
             store.reindex(id)?;
@@ -347,6 +431,7 @@ fn operation(request: Request, store: &mut Store, paths: &Paths) -> Result<Respo
         Request::SaveNote(_, _)
         | Request::Capture(_)
         | Request::Image(_, _)
+        | Request::ReadText(_)
         | Request::Config(_) => unreachable!("Handled before operation dispatch"),
     }
 }
@@ -357,11 +442,17 @@ fn save_capture(
     image: DynamicImage,
     note: Option<i64>,
     destination: &Path,
+    source: Option<Source>,
 ) -> Result<Response> {
     fs::create_dir_all(destination).context("Cannot create capture directory")?;
     paths.ensure_original_location(destination)?;
     let file = media::save_capture(&image, destination)?;
     let shot = store.register_image(&file,true,Some(oxide_core::now())).with_context(||format!("Original saved at {}, but registration failed; it will be recovered from the capture directory",file.display()))?;
+    if let Some(source) = source
+        && let Err(error) = store.set_source(shot.id, &source.app, &source.title)
+    {
+        log::warn!("Capture source metadata: {error:#}");
+    }
     if let Some(note) = note {
         store
             .attach(note, shot.id)
@@ -373,6 +464,28 @@ fn save_capture(
         )));
     }
     Ok(Response::Changed("Screenshot saved; OCR queued".into()))
+}
+
+/// Runs the reader's one-shot OCR on a temporary PNG; the image is never stored.
+fn read_text(paths: &Paths, image: &DynamicImage) -> Result<Vec<String>> {
+    let temp = tempfile::Builder::new().suffix(".png").tempfile()?;
+    image.save_with_format(temp.path(), image::ImageFormat::Png)?;
+    let output = std::process::Command::new(crate::lifecycle::worker_binary()?)
+        .arg("--data-dir")
+        .arg(&paths.data)
+        .arg("--ocr")
+        .arg(temp.path())
+        .output()
+        .context("Cannot start the local reader")?;
+    if !output.status.success() {
+        anyhow::bail!(
+            "Text recognition failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
+    let lines: Vec<Line> =
+        serde_json::from_slice(&output.stdout).context("Reader returned unreadable text")?;
+    Ok(lines.into_iter().map(|line| line.text).collect())
 }
 
 fn decode_image(store: &Store, paths: &Paths, id: i64, full: bool) -> Result<Response> {
@@ -495,7 +608,7 @@ mod tests {
         let unknown = original.parent().unwrap().join("keep.png");
         fs::write(&unknown, b"unregistered original")?;
         assert!(media::thumbnail(&paths, 99, &image, &original).is_err());
-        assert!(save_capture(&mut store, &paths, image, None, &paths.cache).is_err());
+        assert!(save_capture(&mut store, &paths, image, None, &paths.cache, None).is_err());
         operation(Request::ClearCache, &mut store, &paths)?;
         assert_eq!(fs::read(original)?, bytes);
         assert!(unknown.exists());

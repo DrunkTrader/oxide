@@ -10,7 +10,7 @@ use eframe::egui::{self, Color32, RichText};
 use oxide_core::{
     Line, NoteSummary, Screenshot, WorkerStatus,
     config::{Config, Paths},
-    query::Query,
+    query::{Query, folder_filter, normalize_tag, terms_without_filters},
 };
 use winit::window::Window;
 
@@ -18,7 +18,7 @@ use crate::{
     backend::{Backend, Request, Response},
     editor::Editor,
     lifecycle::{Action, Hotkeys, Resident, Worker},
-    platform::{self, Display},
+    platform::{self, Display, Source},
 };
 
 mod design;
@@ -37,6 +37,7 @@ pub struct Launch {
 
 enum AfterSave {
     New,
+    Daily,
     Load(i64),
     Duplicate(i64),
     Trash(i64),
@@ -47,6 +48,14 @@ enum Confirmation {
     Note(i64),
     Shots(Vec<i64>),
     Cache,
+    Redact(i64, Vec<Line>),
+}
+/// Where a finished capture goes.
+#[derive(Clone, Copy, PartialEq)]
+enum Target {
+    Note,
+    NewNote,
+    Text,
 }
 struct Texture {
     handle: egui::TextureHandle,
@@ -117,6 +126,14 @@ pub struct App {
     capture_focus: bool,
     capture_region: bool,
     capture_note: Option<i64>,
+    capture_target: Target,
+    capture_source: Option<Source>,
+    join_lines: bool,
+    note_tags: Vec<String>,
+    shot_tags: Vec<String>,
+    all_tags: Vec<String>,
+    tag_input: String,
+    deny_input: String,
     capture: Option<Capture>,
     smoke: bool,
     started: Instant,
@@ -225,6 +242,14 @@ impl App {
             capture_focus: false,
             capture_region: false,
             capture_note: None,
+            capture_target: Target::Note,
+            capture_source: None,
+            join_lines: false,
+            note_tags: Vec::new(),
+            shot_tags: Vec::new(),
+            all_tags: Vec::new(),
+            tag_input: String::new(),
+            deny_input: String::new(),
             capture: None,
             smoke: launch.smoke,
             started: Instant::now(),
@@ -263,6 +288,17 @@ impl App {
             }
             Err(e) => {
                 self.query_error = Some(e.to_string());
+                self.notes.clear();
+                self.shots.clear();
+                self.attachments.clear();
+                self.lines.clear();
+                self.linked.clear();
+                self.selected_shots.clear();
+                self.selected_lines.clear();
+                self.detail = None;
+                self.textures.clear();
+                self.loading.clear();
+                self.image_errors.clear();
                 return;
             }
         }
@@ -299,6 +335,10 @@ impl App {
         match action {
             AfterSave::New => {
                 self.switching_note = self.send(Request::NewNote);
+            }
+            AfterSave::Daily => {
+                let title = chrono::Local::now().format("%Y-%m-%d").to_string();
+                self.switching_note = self.send(Request::DailyNote(title));
             }
             AfterSave::Load(id) => {
                 self.switching_note = self.send(Request::LoadNote(id));
@@ -381,6 +421,9 @@ impl App {
                     self.lines = snapshot.lines;
                     self.linked = snapshot.linked;
                     self.status = snapshot.status;
+                    self.note_tags = snapshot.note_tags;
+                    self.shot_tags = snapshot.shot_tags;
+                    self.all_tags = snapshot.all_tags;
                     if let Some(note) = snapshot.note
                         && !self.editor.dirty()
                         && self.editor.in_flight.is_none()
@@ -392,6 +435,12 @@ impl App {
                     self.switching_note = false;
                     self.config.last_note = Some(note.id);
                     self.draft.last_note = Some(note.id);
+                    if note.revision == 0 && note.body.is_empty() && note.title == "Untitled note" {
+                        // One-shot: the title widget does not exist until the next pass.
+                        context.data_mut(|data| {
+                            data.insert_temp(egui::Id::new("focus-title"), note.id)
+                        });
+                    }
                     self.editor.load(note);
                     self.query_generation += 1;
                     self.detail = None;
@@ -429,11 +478,7 @@ impl App {
                             bounds,
                         });
                     } else if !self.capture_region {
-                        self.send(Request::SaveCapture(
-                            image,
-                            self.capture_note,
-                            self.config.capture_directory.clone(),
-                        ));
+                        self.finish_capture(image, self.capture_note);
                     }
                     if self.capture_restore && self.privacy_error.is_none() {
                         self.hidden = false;
@@ -441,6 +486,15 @@ impl App {
                         if self.capture_focus {
                             self.window.focus_window();
                         }
+                    }
+                }
+                Response::Text(lines) => {
+                    if lines.is_empty() {
+                        self.notice = Some("No text found in the selected region".into());
+                    } else {
+                        let separator = if self.join_lines { " " } else { "\n" };
+                        context.copy_text(lines.join(separator));
+                        self.notice = Some(format!("Copied {} line(s) of text", lines.len()));
                     }
                 }
                 Response::CaptureFailed(error) => {
@@ -693,8 +747,13 @@ impl App {
                 self.window.set_visible(false);
                 self.textures.clear();
             }
-            Action::Region => self.start_capture(true),
-            Action::Display => self.start_capture(false),
+            Action::Region => self.start_capture(true, Target::Note),
+            Action::Display => self.start_capture(false, Target::Note),
+            Action::Text => self.start_capture(true, Target::Text),
+            Action::NewNote => {
+                self.action(Action::Show, context);
+                self.new_note();
+            }
             Action::Quit => {
                 if self.editor.dirty() {
                     self.defer(AfterSave::Quit);
@@ -711,7 +770,7 @@ impl App {
             }
         }
     }
-    fn start_capture(&mut self, region: bool) {
+    fn start_capture(&mut self, region: bool, target: Target) {
         if self.capture_pending
             || self.capture.is_some()
             || self.privacy_error.is_some()
@@ -720,6 +779,17 @@ impl App {
         {
             return;
         }
+        let source = platform::foreground_source();
+        if let Some(source) = &source
+            && let Some(entry) = self.config.denied(&source.app, &source.title)
+        {
+            self.notice = Some(format!(
+                "Capture skipped: the active window matches \"{entry}\" on your deny list"
+            ));
+            return;
+        }
+        self.capture_source = source;
+        self.capture_target = target;
         self.displays = platform::displays(&self.window);
         let Some(display) = self.displays.get(self.display_index).cloned() else {
             self.notice = Some("No selected display is available".into());
@@ -747,6 +817,16 @@ impl App {
             self.window.set_visible(true);
         }
     }
+    fn finish_capture(&mut self, image: image::DynamicImage, note: Option<i64>) {
+        let source = self.capture_source.take();
+        let destination = self.config.capture_directory.clone();
+        self.send(match self.capture_target {
+            Target::Note => Request::SaveCapture(image, note, destination, source),
+            Target::NewNote => Request::CaptureToNewNote(image, destination, source),
+            Target::Text => Request::ReadText(image),
+        });
+    }
+
     fn picture(&mut self, id: i64, full: bool) -> Option<(egui::TextureId, egui::Vec2)> {
         if let Some(texture) = self.textures.get_mut(&(id, full)) {
             texture.touched = Instant::now();
@@ -760,6 +840,22 @@ impl App {
         }
         None
     }
+
+    fn load_more(&mut self) {
+        self.limit += 50;
+        self.refresh_pending = false;
+        self.refresh();
+    }
+
+    fn retry_image(&mut self, id: i64, full: bool) {
+        if self.send(Request::Image(id, full)) {
+            self.textures.remove(&(id, full));
+            self.loading.remove(&(id, full));
+            self.image_errors.remove(&(id, full));
+            self.loading.insert((id, full));
+        }
+    }
+
     fn select_shot(&mut self, id: i64) {
         self.textures.retain(|(_, full), _| !*full);
         self.detail = Some(id);
@@ -783,19 +879,36 @@ impl App {
         let Some(confirmation) = &self.confirmation else {
             return;
         };
-        let description=match confirmation{Confirmation::Note(_)=>"Move this note to note trash? Its images stay in the library.".into(),Confirmation::Shots(ids)=>format!("Move exactly {} selected original image(s) to recoverable system trash?",ids.len()),Confirmation::Cache=>"Clear OCR/thumbnail caches? Authored notes, attachment relationships, and originals will be retained.".into()};
+        let description = match confirmation {
+            Confirmation::Note(_) => {
+                "Move this note to note trash? Its images stay in the library.".into()
+            }
+            Confirmation::Shots(ids) => format!(
+                "Move exactly {} selected original image(s) to recoverable system trash?",
+                ids.len()
+            ),
+            Confirmation::Cache => "Clear OCR/thumbnail caches? Authored notes, attachment relationships, and originals will be retained.".into(),
+            Confirmation::Redact(_, lines) => format!(
+                "Permanently black out {} selected line(s) in the original image file? This rewrites the original and cannot be undone.",
+                lines.len()
+            ),
+        };
         let mut accept = false;
         let mut cancel = false;
-        egui::Window::new("Confirm action")
-            .collapsible(false)
-            .resizable(false)
+        let modal = egui::Modal::new(egui::Id::new("confirm-action"))
+            .backdrop_color(Color32::from_black_alpha(96))
             .show(context, |ui| {
-                ui.label(description);
-                ui.horizontal(|ui| {
-                    accept = ui.button("Confirm").clicked();
-                    cancel = ui.button("Cancel").clicked();
+                ui.set_width(380.0);
+                section(ui, "Are you sure?", "");
+                ui.add_space(8.0);
+                ui.label(RichText::new(description).color(Palette::of(ui).muted));
+                ui.add_space(20.0);
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    accept = destructive(ui, "Confirm").clicked();
+                    cancel = quiet(ui, "Cancel").clicked();
                 });
             });
+        cancel |= modal.backdrop_response.clicked();
         if accept {
             if let Some(confirmation) = self.confirmation.take() {
                 match confirmation {
@@ -810,6 +923,12 @@ impl App {
                         self.textures.clear();
                         self.image_errors.clear();
                     }
+                    Confirmation::Redact(id, lines) => {
+                        if self.send(Request::Redact(id, lines)) {
+                            self.selected_lines.clear();
+                            self.textures.retain(|(shot, _), _| *shot != id);
+                        }
+                    }
                 }
             }
         } else if cancel {
@@ -818,13 +937,25 @@ impl App {
     }
 
     fn capture_selection(&mut self, ui: &mut egui::Ui) {
-        ui.heading("Select a region");
-        ui.label("Drag a rectangle on the captured display. Release to save. Escape cancels.");
+        let text = self.capture_target == Target::Text;
+        ui.heading(if text {
+            "Select text to copy"
+        } else {
+            "Select a region"
+        });
+        ui.label(if text {
+            "Drag a rectangle around the text. Release to copy it. The image is not saved."
+        } else {
+            "Drag a rectangle on the captured display. Release to save. Escape cancels."
+        });
         let mut crop = None;
         let mut cancel = false;
-        if ui.button("Cancel").clicked() {
-            cancel = true;
-        }
+        ui.horizontal(|ui| {
+            cancel = ui.button("Cancel").clicked();
+            if text {
+                ui.checkbox(&mut self.join_lines, "Join lines into one paragraph");
+            }
+        });
         if let Some(capture) = &mut self.capture {
             ui.horizontal_wrapped(|ui| {
                 let [x, y, width, height] = &mut capture.bounds;
@@ -858,7 +989,7 @@ impl App {
                 ui.painter().rect_stroke(
                     rect,
                     0.0,
-                    egui::Stroke::new(2.0, Color32::from_rgb(190, 110, 76)),
+                    egui::Stroke::new(2.0, Palette::of(ui).accent),
                     egui::StrokeKind::Inside,
                 );
                 if response.drag_stopped() && rect.width() > 2.0 && rect.height() > 2.0 {
@@ -889,13 +1020,10 @@ impl App {
             && let Some(capture) = self.capture.take()
         {
             let image = capture.image.crop_imm(x, y, width, height);
-            self.send(Request::SaveCapture(
-                image,
-                capture.note,
-                self.config.capture_directory.clone(),
-            ));
+            self.finish_capture(image, capture.note);
         } else if cancel {
             self.capture = None;
+            self.capture_source = None;
         }
     }
 
@@ -996,10 +1124,10 @@ impl eframe::App for App {
         if context.input_mut(|input| input.consume_key(egui::Modifiers::COMMAND, egui::Key::S)) {
             self.save();
         }
-        if context.input_mut(|input| input.consume_key(egui::Modifiers::COMMAND, egui::Key::F)) {
-            context.memory_mut(|memory| memory.request_focus(egui::Id::new("search")));
-        }
-        if context.input_mut(|input| input.consume_key(egui::Modifiers::COMMAND, egui::Key::K)) {
+        if context.input_mut(|input| {
+            input.consume_key(egui::Modifiers::COMMAND, egui::Key::F)
+                | input.consume_key(egui::Modifiers::COMMAND, egui::Key::K)
+        }) {
             context.memory_mut(|memory| memory.request_focus(egui::Id::new("search")));
         }
         if context.input_mut(|input| input.consume_key(egui::Modifiers::NONE, egui::Key::Escape)) {
@@ -1045,11 +1173,24 @@ impl eframe::App for App {
                 .resizable(true)
                 .default_size(246.0)
                 .frame(panel_frame(p.canvas, 16))
-                .show(ui, |ui| self.note_sidebar(ui));
+                .show(ui, |ui| {
+                    entrance(ui, "sidebar", self.trash_view);
+                    self.note_sidebar(ui);
+                });
         }
         egui::CentralPanel::default()
             .frame(panel_frame(p.canvas, 24))
             .show(ui, |ui| {
+                entrance(
+                    ui,
+                    "main",
+                    (
+                        self.library,
+                        self.all_view,
+                        self.trash_view,
+                        self.editor.note.as_ref().map(|note| note.id),
+                    ),
+                );
                 if self.library {
                     self.library(ui);
                 } else {

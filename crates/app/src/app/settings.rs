@@ -15,15 +15,27 @@ impl App {
                     self.changed_query(); ui.close();
                 } else { self.notice = Some("Use a complete calendar date in YYYY-MM-DD format".into()); }
             }
-            if ui.button("Choose screenshot folder…").clicked() && let Some(folder) = rfd::FileDialog::new().pick_folder() {
-                let folder = folder.to_string_lossy();
-                if folder.contains('"') { self.notice = Some("The quoted folder-filter syntax cannot represent this folder name".into()); }
-                else { self.query.push_str(&format!(" in:\"{folder}\"")); self.library = true; self.all_view = false; self.changed_query(); ui.close(); }
+            if ui.button("Choose screenshot folder…").clicked()
+                && let Some(folder) = rfd::FileDialog::new().pick_folder()
+            {
+                match folder_filter(&folder) {
+                    Ok(filter) => {
+                        self.query.push(' ');
+                        self.query.push_str(&filter);
+                        self.library = true;
+                        self.all_view = false;
+                        self.changed_query();
+                        ui.close();
+                    }
+                    Err(error) => self.notice = Some(format!("{error:#}")),
+                }
             }
             ui.separator();
             caption(ui, "Folders filter screenshots only. Dates use last edit or image capture/modification time.");
-            if quiet(ui, "Clear filters").clicked() && let Ok(query) = Query::parse(&self.query) {
-                self.query = query.terms.join(" "); self.changed_query(); ui.close();
+            if quiet(ui, "Clear filters").clicked() {
+                self.query = terms_without_filters(&self.query).join(" ");
+                self.changed_query();
+                ui.close();
             }
         });
     }
@@ -124,6 +136,43 @@ impl App {
                 "This platform has no supported recording-exclusion mechanism. Notes and capture remain available."
             },
         );
+        ui.add_space(24.0);
+        section(
+            ui,
+            "Never capture",
+            "Captures are skipped while the active window's app or title contains one of these.",
+        );
+        ui.add_space(12.0);
+        let mut remove = None;
+        for (index, entry) in self.draft.capture_deny.iter().enumerate() {
+            ui.horizontal(|ui| {
+                ui.label(entry);
+                if quiet(ui, "Remove").clicked() {
+                    remove = Some(index);
+                }
+            });
+        }
+        if let Some(index) = remove {
+            self.draft.capture_deny.remove(index);
+        }
+        ui.horizontal(|ui| {
+            let response = ui.add(
+                egui::TextEdit::singleline(&mut self.deny_input)
+                    .hint_text("App or window title")
+                    .desired_width(220.0),
+            );
+            let submitted = response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+            if (ui.button("Add").clicked() || submitted) && !self.deny_input.trim().is_empty() {
+                self.draft
+                    .capture_deny
+                    .push(self.deny_input.trim().chars().take(128).collect());
+                self.deny_input.clear();
+            }
+        });
+        caption(
+            ui,
+            "Matching needs the active window's name, which Wayland does not provide.",
+        );
     }
 
     fn storage_settings(&mut self, ui: &mut egui::Ui) {
@@ -160,9 +209,19 @@ impl App {
         }
         if ui.button("Add folder…").clicked()
             && let Some(path) = rfd::FileDialog::new().pick_folder()
-            && !self.draft.folders.contains(&path)
         {
-            self.draft.folders.push(path);
+            let path = std::fs::canonicalize(&path).unwrap_or(path);
+            if !self.draft.folders.contains(&path) {
+                let mut candidate = self.draft.clone();
+                candidate.folders.push(path.clone());
+                match candidate
+                    .validate()
+                    .and_then(|()| self.paths.ensure_original_location(&path))
+                {
+                    Ok(()) => self.draft = candidate,
+                    Err(error) => self.notice = Some(format!("{error:#}")),
+                }
+            }
         }
         ui.add_space(20.0);
         if quiet(ui, "Open data directory").clicked()
@@ -187,6 +246,8 @@ impl App {
                     ("Hide all", &mut self.draft.hide_shortcut),
                     ("Capture region", &mut self.draft.capture_shortcut),
                     ("Capture display", &mut self.draft.display_shortcut),
+                    ("Copy text from region", &mut self.draft.text_shortcut),
+                    ("New note", &mut self.draft.note_shortcut),
                 ] {
                     ui.label(label);
                     ui.add(egui::TextEdit::singleline(value).font(egui::TextStyle::Monospace));

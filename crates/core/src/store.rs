@@ -9,7 +9,7 @@ use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params, types
 
 use crate::{
     Line, Note, NoteSummary, Screenshot, media, now,
-    query::{Query, like_literal},
+    query::{Query, like_literal, normalize_folder, normalize_tag},
 };
 
 pub struct Store {
@@ -29,7 +29,17 @@ CREATE INDEX notes_date ON notes(updated_at);
 CREATE INDEX screenshots_date ON screenshots(captured_at);
 CREATE INDEX screenshots_pending ON screenshots(ocr_state, available, captured_at);
 CREATE INDEX attachments_screenshot ON note_screenshots(screenshot_id);
-PRAGMA user_version=3;
+";
+
+/// Schema 3 -> 4: capture source metadata and tags. Also completes a fresh schema.
+const SCHEMA_4: &str = "
+ALTER TABLE screenshots ADD COLUMN source_app TEXT;
+ALTER TABLE screenshots ADD COLUMN source_title TEXT;
+CREATE TABLE note_tags(note_id INTEGER NOT NULL REFERENCES notes(id) ON DELETE CASCADE, tag TEXT NOT NULL, PRIMARY KEY(note_id, tag));
+CREATE TABLE shot_tags(screenshot_id INTEGER NOT NULL REFERENCES screenshots(id) ON DELETE CASCADE, tag TEXT NOT NULL, PRIMARY KEY(screenshot_id, tag));
+CREATE INDEX note_tags_tag ON note_tags(tag);
+CREATE INDEX shot_tags_tag ON shot_tags(tag);
+PRAGMA user_version=4;
 ";
 
 impl Store {
@@ -44,9 +54,9 @@ impl Store {
         )?;
         let existing_version: i64 =
             connection.query_row("PRAGMA user_version", [], |row| row.get(0))?;
-        if matches!(existing_version, 1 | 2) {
+        if matches!(existing_version, 1..=3) {
             let parent = path.parent().context("Database has no parent")?;
-            let backup = parent.join(format!("oxide-before-schema-3-{}.db", now()));
+            let backup = parent.join(format!("oxide-before-schema-4-{}.db", now()));
             backup_database(&connection, &backup)
                 .context("Cannot back up database before migration")?;
         }
@@ -61,16 +71,20 @@ impl Store {
                     );
                 }
                 tx.execute_batch(SCHEMA)?;
+                tx.execute_batch(SCHEMA_4)?;
             }
-            1 | 2 => {
+            1..=3 => {
                 if version == 1 {
                     tx.execute_batch(
                         "ALTER TABLE screenshots ADD COLUMN retained INTEGER NOT NULL DEFAULT 0;",
                     )?;
                 }
-                tx.execute_batch("ALTER TABLE screenshots ADD COLUMN time_source TEXT NOT NULL DEFAULT 'legacy'; UPDATE screenshots SET time_source='modified' WHERE managed=0; PRAGMA user_version=3;")?;
+                if version < 3 {
+                    tx.execute_batch("ALTER TABLE screenshots ADD COLUMN time_source TEXT NOT NULL DEFAULT 'legacy'; UPDATE screenshots SET time_source='modified' WHERE managed=0;")?;
+                }
+                tx.execute_batch(SCHEMA_4)?;
             }
-            3 => {}
+            4 => {}
             _ => bail!(
                 "Unsupported database schema {version}; user data was not reset. Use a compatible Oxide build or restore a backup"
             ),
@@ -86,22 +100,42 @@ impl Store {
     }
 
     pub fn new_note(&mut self) -> Result<Note> {
+        self.new_note_titled("Untitled note")
+    }
+
+    pub fn new_note_titled(&mut self, title: &str) -> Result<Note> {
         let time = now();
         let tx = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
         tx.execute(
-            "INSERT INTO notes(title,body,created_at,updated_at) VALUES('Untitled note','',?1,?1)",
-            [time],
+            "INSERT INTO notes(title,body,created_at,updated_at) VALUES(?1,'',?2,?2)",
+            params![title, time],
         )?;
         let id = tx.last_insert_rowid();
         tx.execute(
-            "INSERT INTO notes_fts(rowid,text) VALUES(?1,'Untitled note')",
-            [id],
+            "INSERT INTO notes_fts(rowid,text) VALUES(?1,?2)",
+            params![id, title],
         )?;
         changed(&tx)?;
         tx.commit()?;
         self.note(id)?.context("New note could not be read")
+    }
+
+    /// Opens the active note with exactly this title, creating it when absent.
+    pub fn daily_note(&mut self, title: &str) -> Result<Note> {
+        let existing = self
+            .connection
+            .query_row(
+                "SELECT id FROM notes WHERE title=?1 AND deleted_at IS NULL ORDER BY id LIMIT 1",
+                [title],
+                |r| r.get::<_, i64>(0),
+            )
+            .optional()?;
+        match existing {
+            Some(id) => self.note(id)?.context("Daily note could not be read"),
+            None => self.new_note_titled(title),
+        }
     }
 
     pub fn note(&self, id: i64) -> Result<Option<Note>> {
@@ -178,6 +212,10 @@ impl Store {
             params![new, format!("{title}\n{}", original.body)],
         )?;
         tx.execute("INSERT INTO note_screenshots SELECT ?1,screenshot_id,position,?2 FROM note_screenshots WHERE note_id=?3",params![new,now(),id])?;
+        tx.execute(
+            "INSERT INTO note_tags SELECT ?1,tag FROM note_tags WHERE note_id=?2",
+            params![new, id],
+        )?;
         changed(&tx)?;
         tx.commit()?;
         self.note(new)?.context("Copied note could not be read")
@@ -190,11 +228,17 @@ impl Store {
         limit: usize,
         offset: usize,
     ) -> Result<Vec<NoteSummary>> {
-        if query.folder.is_some() {
+        if query.folder.is_some() || query.app.is_some() {
             return Ok(Vec::new());
         }
-        let (condition, mut values, order, join) =
-            search_clause(query, "n.updated_at", "notes_fts", "n.id", None);
+        let (condition, mut values, order, join) = search_clause(
+            query,
+            "n.updated_at",
+            "notes_fts",
+            "n.id",
+            ("note_tags", "note_id"),
+            None,
+        );
         values.push((limit as i64).into());
         values.push((offset as i64).into());
         let sql = format!(
@@ -427,6 +471,7 @@ impl Store {
             "s.captured_at",
             "screenshots_fts",
             "s.id",
+            ("shot_tags", "screenshot_id"),
             Some("s.path"),
         );
         values.push((limit as i64).into());
@@ -667,6 +712,87 @@ impl Store {
         Ok(())
     }
 
+    /// Records the foreground app and window title the capture came from.
+    pub fn set_source(&mut self, id: i64, app: &str, title: &str) -> Result<()> {
+        let tx = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        tx.execute(
+            "UPDATE screenshots SET source_app=?1,source_title=?2,updated_at=max(updated_at+1,?3) WHERE id=?4",
+            params![app, title, now(), id],
+        )?;
+        changed(&tx)?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    pub fn set_note_tags(&mut self, id: i64, tags: &[String]) -> Result<()> {
+        self.set_tags("note_tags", "note_id", id, tags)
+    }
+
+    pub fn set_shot_tags(&mut self, id: i64, tags: &[String]) -> Result<()> {
+        self.set_tags("shot_tags", "screenshot_id", id, tags)
+    }
+
+    fn set_tags(&mut self, table: &str, column: &str, id: i64, tags: &[String]) -> Result<()> {
+        let tx = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        tx.execute(&format!("DELETE FROM {table} WHERE {column}=?1"), [id])?;
+        for tag in tags.iter().filter_map(|tag| normalize_tag(tag)) {
+            tx.execute(
+                &format!("INSERT OR IGNORE INTO {table}({column},tag) VALUES(?1,?2)"),
+                params![id, tag],
+            )?;
+        }
+        changed(&tx)?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    pub fn note_tags(&self, id: i64) -> Result<Vec<String>> {
+        self.tags_of("note_tags", "note_id", id)
+    }
+
+    pub fn shot_tags(&self, id: i64) -> Result<Vec<String>> {
+        self.tags_of("shot_tags", "screenshot_id", id)
+    }
+
+    fn tags_of(&self, table: &str, column: &str, id: i64) -> Result<Vec<String>> {
+        let mut stmt = self.connection.prepare(&format!(
+            "SELECT tag FROM {table} WHERE {column}=?1 ORDER BY tag"
+        ))?;
+        Ok(stmt
+            .query_map([id], |r| r.get(0))?
+            .collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// Tags in use on active notes or library screenshots, most used first.
+    pub fn all_tags(&self) -> Result<Vec<String>> {
+        let mut stmt = self.connection.prepare(
+            "SELECT tag FROM (SELECT t.tag FROM note_tags t JOIN notes n ON n.id=t.note_id WHERE n.deleted_at IS NULL UNION ALL SELECT t.tag FROM shot_tags t JOIN screenshots s ON s.id=t.screenshot_id WHERE s.ocr_state NOT IN ('trashed','unwatched')) GROUP BY tag ORDER BY count(*) DESC, tag LIMIT 50",
+        )?;
+        Ok(stmt
+            .query_map([], |r| r.get(0))?
+            .collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// Drops all recognized text for an original whose pixels were redacted, then
+    /// re-registers the rewritten file so OCR runs again on the redacted image.
+    pub fn redacted(&mut self, id: i64) -> Result<Screenshot> {
+        let shot = self
+            .screenshot(id)?
+            .context("Screenshot no longer exists")?;
+        let tx = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        tx.execute("DELETE FROM ocr_lines WHERE screenshot_id=?1", [id])?;
+        tx.execute("DELETE FROM screenshots_fts WHERE rowid=?1", [id])?;
+        changed(&tx)?;
+        tx.commit()?;
+        self.register_image(Path::new(&shot.path), shot.managed, None)
+    }
+
     pub fn backup(&self, destination: &Path) -> Result<()> {
         backup_database(&self.connection, destination)
     }
@@ -700,7 +826,7 @@ fn normalize_source_path(path: &Path) -> std::path::PathBuf {
         .unwrap_or_else(|| path.to_owned())
 }
 
-const SHOT_SELECT: &str = "SELECT s.id,s.path,s.managed,s.captured_at,s.width,s.height,s.digest,s.available,s.ocr_state,s.ocr_error,s.updated_at,s.time_source FROM screenshots s";
+const SHOT_SELECT: &str = "SELECT s.id,s.path,s.managed,s.captured_at,s.width,s.height,s.digest,s.available,s.ocr_state,s.ocr_error,s.updated_at,s.time_source,s.source_app,s.source_title FROM screenshots s";
 fn read_shot(r: &rusqlite::Row<'_>) -> rusqlite::Result<Screenshot> {
     Ok(Screenshot {
         id: r.get(0)?,
@@ -715,6 +841,8 @@ fn read_shot(r: &rusqlite::Row<'_>) -> rusqlite::Result<Screenshot> {
         ocr_state: r.get(8)?,
         ocr_error: r.get(9)?,
         updated_at: r.get(10)?,
+        source_app: r.get(12)?,
+        source_title: r.get(13)?,
     })
 }
 fn changed(tx: &rusqlite::Transaction<'_>) -> rusqlite::Result<usize> {
@@ -726,6 +854,7 @@ fn search_clause(
     date: &str,
     fts: &str,
     id: &str,
+    (tag_table, tag_column): (&str, &str),
     path: Option<&str>,
 ) -> (String, Vec<Value>, String, String) {
     let mut condition = String::new();
@@ -746,6 +875,20 @@ fn search_clause(
         ));
         values.push(format!("%{}%", like_literal(term)).into());
     }
+    for tag in &query.tags {
+        condition.push_str(&format!(
+            " AND {id} IN (SELECT {tag_column} FROM {tag_table} WHERE tag=?)"
+        ));
+        values.push(tag.clone().into());
+    }
+    if let (Some(app), Some(_)) = (&query.app, path) {
+        condition.push_str(
+            " AND (s.source_app LIKE ? ESCAPE '\\' OR s.source_title LIKE ? ESCAPE '\\')",
+        );
+        let pattern = format!("%{}%", like_literal(app));
+        values.push(pattern.clone().into());
+        values.push(pattern.into());
+    }
     if let Some(since) = query.since {
         condition.push_str(&format!(" AND {date}>=?"));
         values.push(since.into());
@@ -755,6 +898,7 @@ fn search_clause(
         values.push(until.into());
     }
     if let (Some(folder), Some(path)) = (&query.folder, path) {
+        let folder = normalize_folder(folder);
         condition.push_str(&format!(
             " AND ({path} LIKE ? ESCAPE '\\' OR {path} LIKE ? ESCAPE '\\')"
         ));
@@ -791,7 +935,7 @@ mod tests {
         let shot = store.register_image(&image, true, None)?;
         store.attach(note.id, shot.id)?;
         store.connection.execute_batch(
-            "ALTER TABLE screenshots DROP COLUMN retained; ALTER TABLE screenshots DROP COLUMN time_source; PRAGMA user_version=1;",
+            "ALTER TABLE screenshots DROP COLUMN retained; ALTER TABLE screenshots DROP COLUMN time_source; ALTER TABLE screenshots DROP COLUMN source_app; ALTER TABLE screenshots DROP COLUMN source_title; DROP TABLE note_tags; DROP TABLE shot_tags; PRAGMA user_version=1;",
         )?;
         drop(store);
         let store = Store::open(&db)?;
@@ -804,7 +948,7 @@ mod tests {
                 path.file_name()
                     .unwrap()
                     .to_string_lossy()
-                    .starts_with("oxide-before-schema-3-")
+                    .starts_with("oxide-before-schema-4-")
             })
             .unwrap();
         let original = Connection::open(&backup)?;
@@ -1073,6 +1217,67 @@ mod tests {
             })
             .is_err()
         );
+        Ok(())
+    }
+
+    #[test]
+    fn tags_source_and_redaction_drive_search() -> Result<()> {
+        let root = tempfile::tempdir()?;
+        let image = root.path().join("shot.png");
+        image::RgbImage::from_pixel(32, 32, image::Rgb([255, 255, 255])).save(&image)?;
+        let mut s = Store::open(&root.path().join("oxide.db"))?;
+        let note = s.new_note()?;
+        s.set_note_tags(note.id, &["#Work".into(), "work".into(), " ".into()])?;
+        assert_eq!(s.note_tags(note.id)?, ["work"]);
+        assert_eq!(s.notes(&Query::parse("tag:work")?, false, 10, 0)?.len(), 1);
+        assert!(
+            s.notes(&Query::parse("tag:home")?, false, 10, 0)?
+                .is_empty()
+        );
+        let copy = s.duplicate_note(note.id)?;
+        assert_eq!(s.note_tags(copy.id)?, ["work"]);
+
+        let shot = s.register_image(&image, true, Some(1))?;
+        s.set_source(shot.id, "firefox", "Bank - Mozilla Firefox")?;
+        s.set_shot_tags(shot.id, &["receipts".into()])?;
+        assert_eq!(s.screenshots(&Query::parse("app:bank")?, 10, 0)?.len(), 1);
+        assert!(
+            s.screenshots(&Query::parse("app:slack")?, 10, 0)?
+                .is_empty()
+        );
+        assert!(
+            s.notes(&Query::parse("app:firefox")?, false, 10, 0)?
+                .is_empty()
+        );
+        assert_eq!(s.all_tags()?, ["work", "receipts"]);
+
+        let line = Line {
+            text: "secret token".into(),
+            x: 0.1,
+            y: 0.1,
+            w: 0.5,
+            h: 0.2,
+            confidence: None,
+        };
+        s.set_ocr(&shot, &[line], "fixture")?;
+        assert_eq!(s.screenshots(&Query::parse("secret")?, 10, 0)?.len(), 1);
+        image::RgbImage::from_pixel(32, 32, image::Rgb([0, 0, 0])).save(&image)?;
+        let redacted = s.redacted(shot.id)?;
+        assert!(s.screenshots(&Query::parse("secret")?, 10, 0)?.is_empty());
+        assert!(s.lines(shot.id)?.is_empty());
+        assert_eq!(redacted.ocr_state, "pending");
+        assert_eq!(redacted.source_app.as_deref(), Some("firefox"));
+        Ok(())
+    }
+
+    #[test]
+    fn daily_note_is_reused_until_trashed() -> Result<()> {
+        let root = tempfile::tempdir()?;
+        let mut s = Store::open(&root.path().join("oxide.db"))?;
+        let first = s.daily_note("2026-11-08")?;
+        assert_eq!(s.daily_note("2026-11-08")?.id, first.id);
+        s.set_note_trashed(first.id, true)?;
+        assert_ne!(s.daily_note("2026-11-08")?.id, first.id);
         Ok(())
     }
 }

@@ -22,6 +22,33 @@ pub struct Display {
     pub height: u32,
 }
 
+/// The application and window a capture came from.
+#[derive(Clone, Debug)]
+pub struct Source {
+    pub app: String,
+    pub title: String,
+}
+
+/// The focused window of another process, when the platform exposes one.
+/// Wayland gives clients no foreground-window information, so this is `None` there.
+pub fn foreground_source() -> Option<Source> {
+    #[cfg(windows)]
+    {
+        windows::foreground_source()
+    }
+    #[cfg(target_os = "linux")]
+    {
+        linux::foreground_source().unwrap_or_else(|error| {
+            log::debug!("Foreground window unavailable: {error:#}");
+            None
+        })
+    }
+    #[cfg(not(any(windows, target_os = "linux")))]
+    {
+        None
+    }
+}
+
 pub fn displays(window: &Window) -> Vec<Display> {
     window
         .available_monitors()

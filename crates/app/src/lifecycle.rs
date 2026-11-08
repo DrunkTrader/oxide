@@ -22,6 +22,8 @@ pub enum Action {
     Hide,
     Region,
     Display,
+    Text,
+    NewNote,
     Quit,
     Normal,
 }
@@ -274,6 +276,8 @@ impl Hotkeys {
             (&config.hide_shortcut, Action::Hide),
             (&config.capture_shortcut, Action::Region),
             (&config.display_shortcut, Action::Display),
+            (&config.text_shortcut, Action::Text),
+            (&config.note_shortcut, Action::NewNote),
         ] {
             let key: HotKey = text
                 .parse()
@@ -327,6 +331,20 @@ impl Hotkeys {
     }
 }
 
+pub fn worker_binary() -> Result<PathBuf> {
+    let binary = std::env::current_exe()?.with_file_name(if cfg!(windows) {
+        "oxide-worker.exe"
+    } else {
+        "oxide-worker"
+    });
+    if !binary.is_file() {
+        bail!(
+            "Reader executable is missing. Build/install the complete Cargo workspace, then choose Restart reader"
+        );
+    }
+    Ok(binary)
+}
+
 pub struct Worker {
     child: Option<Child>,
     paths: Paths,
@@ -349,16 +367,7 @@ impl Worker {
         {
             return Ok(());
         }
-        let binary = std::env::current_exe()?.with_file_name(if cfg!(windows) {
-            "oxide-worker.exe"
-        } else {
-            "oxide-worker"
-        });
-        if !binary.is_file() {
-            bail!(
-                "Reader executable is missing. Build/install the complete Cargo workspace, then choose Restart reader"
-            );
-        }
+        let binary = worker_binary()?;
         let log = fs::OpenOptions::new()
             .create(true)
             .append(true)

@@ -4,16 +4,67 @@ use anyhow::{Context, Result, bail};
 use image::{DynamicImage, RgbaImage};
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use windows_sys::Win32::{
+    Foundation::CloseHandle,
     Graphics::{
         Dwm::{DwmFlush, DwmIsCompositionEnabled},
         Gdi::*,
     },
+    System::Threading::{
+        OpenProcess, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
+        QueryFullProcessImageNameW,
+    },
     UI::WindowsAndMessaging::{
-        GetWindowDisplayAffinity, SetWindowDisplayAffinity, WDA_EXCLUDEFROMCAPTURE, WDA_NONE,
+        GetForegroundWindow, GetWindowDisplayAffinity, GetWindowTextW, GetWindowThreadProcessId,
+        SetWindowDisplayAffinity, WDA_EXCLUDEFROMCAPTURE, WDA_NONE,
     },
 };
 
-use super::Display;
+use super::{Display, Source};
+
+pub fn foreground_source() -> Option<Source> {
+    let mut title = [0_u16; 512];
+    let mut image = [0_u16; 1024];
+    let mut image_len = image.len() as u32;
+    let mut pid = 0_u32;
+    // SAFETY: every output pointer refers to a live, writable stack buffer whose
+    // capacity is passed alongside it; the process handle is closed exactly once.
+    let (title_len, has_image) = unsafe {
+        let hwnd = GetForegroundWindow();
+        if hwnd.is_null() {
+            return None;
+        }
+        GetWindowThreadProcessId(hwnd, &mut pid);
+        if pid == 0 || pid == std::process::id() {
+            return None;
+        }
+        let title_len = GetWindowTextW(hwnd, title.as_mut_ptr(), title.len() as i32);
+        let process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+        let mut has_image = false;
+        if !process.is_null() {
+            has_image = QueryFullProcessImageNameW(
+                process,
+                PROCESS_NAME_WIN32,
+                image.as_mut_ptr(),
+                &mut image_len,
+            ) != 0;
+            CloseHandle(process);
+        }
+        (title_len, has_image)
+    };
+    let app = if has_image {
+        let path = String::from_utf16_lossy(&image[..image_len as usize]);
+        std::path::Path::new(&path)
+            .file_stem()
+            .map(|stem| stem.to_string_lossy().into_owned())
+            .unwrap_or_default()
+    } else {
+        String::new()
+    };
+    Some(Source {
+        app,
+        title: String::from_utf16_lossy(&title[..title_len.max(0) as usize]),
+    })
+}
 
 pub fn set_exclusion(window: &winit::window::Window, enabled: bool) -> Result<()> {
     let RawWindowHandle::Win32(handle) = window.window_handle()?.as_raw() else {
