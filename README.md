@@ -6,9 +6,69 @@
 
 <p align="center">A local native workspace for notes and searchable screenshots, with a user-controlled recording-exclusion toggle on Windows.</p>
 
-## Build and run
+<p align="center">
+  <a href="https://github.com/DrunkTrader/oxide/actions/workflows/ci.yml"><img src="https://github.com/DrunkTrader/oxide/actions/workflows/ci.yml/badge.svg" alt="Native checks"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0--or--later-blue" alt="License: GPL-3.0-or-later"></a>
+  <img src="https://img.shields.io/badge/rust-1.95%2B-orange" alt="Rust 1.95+">
+  <img src="https://img.shields.io/badge/platforms-Windows%20%7C%20Linux%20(X11)-lightgrey" alt="Platforms: Windows, Linux X11">
+</p>
 
-Requires Rust **1.95 or newer**, a C compiler (bundled SQLite), and a native desktop session. Windows builds use the MSVC toolchain / Visual Studio C++ Build Tools. Linux development builds need an X11 desktop for screenshot capture and native OpenGL/EGL/XKB runtime libraries.
+<p align="center">
+  <a href="QUICKSTART.md">Quick start</a> ·
+  <a href="ARCHITECTURE.md">Architecture</a> ·
+  <a href="CONTRIBUTING.md">Contributing</a> ·
+  <a href="SECURITY.md">Security</a> ·
+  <a href="CHANGELOG.md">Changelog</a>
+</p>
+
+Oxide keeps your notes and screenshots together and makes the text inside every screenshot searchable. Everything runs on your device: no account, no cloud, and OCR happens in a local process. Capture what you need when you need it; Oxide is not an always-on screen recorder.
+
+## Features
+
+**Notes**
+- Autosaving notes with a **Saved locally** acknowledgement, note trash, duplicate and Markdown export with images
+- Tags, a **Today** daily note, and a global shortcut that opens Oxide with a new note
+
+**Screenshots**
+- Capture a display or a region of a frozen preview, import or paste images, or index existing screenshot folders
+- **Region into a new note**, and **Copy text from region**, which copies recognized text without saving the image
+- Detail view with highlighted matches, copy or insert recognized lines, and attach to any note
+
+**Search**
+- One literal search across notes and the text inside screenshots
+- Filters for date, folder, tag and source app
+
+**Privacy**
+- Records which app and window each capture came from, and skips captures while a password manager or private browsing window is active
+- Redact selected text lines in an original image
+- On Windows, optional recording exclusion keeps Oxide out of screen sharing and recordings
+- Oxide never appears in its own screenshots
+
+**Desktop integration**
+- Configurable global shortcuts, a resident background instance, optional login startup, and a Windows tray icon
+- Light, dark or system theme
+
+## Platform support
+
+| Capability | Windows | Linux (X11) | Linux (Wayland) | macOS |
+|---|---|---|---|---|
+| Notes, OCR, search | Yes | Yes | Yes | Not built |
+| Screenshot capture | Yes | Yes | No | Not built |
+| Capture source and Never capture list | Yes | Yes | No | Not built |
+| Recording exclusion | Yes | No | No | Not built |
+| Tray icon | Yes | No | No | Not built |
+
+## Getting started
+
+New to Oxide? Follow the **[Quick start](QUICKSTART.md)**.
+
+Requirements:
+
+- Rust **1.95 or newer**
+- a C compiler (SQLite is bundled)
+- a native desktop session
+- **Windows:** the MSVC toolchain (Visual Studio C++ Build Tools with the Windows SDK)
+- **Linux:** an X11 desktop for capture, plus OpenGL/EGL/XKB runtime libraries
 
 ```sh
 cargo build --workspace --locked
@@ -17,42 +77,29 @@ cargo run -p oxide-app --locked
 
 Build the complete workspace so `oxide-worker` is beside `oxide-app`. Notes and cached search remain available if the reader cannot start.
 
-## Everyday workflow
-
-1. Choose a capture directory and optional existing screenshot folders in Settings.
-2. Create a note, enter a title/body, and watch the **Saved locally** acknowledgement. Notes autosave after approximately 500 ms of inactivity.
-3. Capture a display or select a rectangular region of a frozen display preview. Region coordinates can also be entered using the keyboard. New captures attach to the note active when capture started; library captures can remain unattached. **Region into a new note** creates a note for the capture instead.
-4. **Copy text from region** recognizes text in a selected region and copies it to the clipboard without saving the image. Optionally join the lines into one paragraph.
-5. Search notes, screenshots, or **All** results. Open an image to inspect line highlights, copy OCR text, insert selected lines into a note, or attach it to another note.
-6. Tag notes and screenshots. Tags appear in the sidebar and filter search with `tag:`. **Today** opens (or creates) a note titled with the current date.
-7. Export a note to Markdown with copied images and relative links. Move notes to persistent note trash; image deletion uses recoverable system trash after confirmation.
-
-Markdown is accepted as text; this development build does not provide a rich-text editor or rendered Markdown preview.
-
-### Capture privacy
-
-- Each capture records the foreground app and window title it came from (Windows and X11). The detail view shows it, and `app:` filters search by it. Oxide's own window is never recorded as a source.
-- **Never capture** (Settings → General) skips a capture while the active window's app or title contains a listed entry. Defaults cover common password managers and private-browsing windows. Wayland does not expose the active window, so the list cannot match there.
-- **Redact selected…** in the image detail view paints opaque black over the selected OCR lines, rewrites the original file in place after confirmation, removes their text from search, and reads the image again. This changes the original image file and cannot be undone.
-
-### Recording exclusion
-
-The **Recording exclusion** toggle appears in the header and Settings:
-
-- **On:** applies `WDA_EXCLUDEFROMCAPTURE` to Oxide's owned Windows top-level window before content is shown. Menus/dialogs drawn inside that window inherit its treatment.
-- **Off:** removes the affinity, allowing ordinary recording/sharing of Oxide according to the chosen capture source.
-- The preference survives restart; switching states does not restart the app or clear notes/search.
-- Oxide always omits its own UI from its screenshot originals, independently of this toggle.
-
-Windows capture compatibility is **not yet runtime-validated** for OBS, Zoom, Teams, or Meet. API application is not a guarantee for every recorder/backend. See [compatibility](docs/COMPATIBILITY.md). Linux development builds expose exclusion as unavailable; notes, OCR, and X11 screenshot capture work with it Off. Wayland capture and macOS native adapters are not implemented.
-
-If a treatment change fails, Oxide hides private content. Use the Windows tray action **Recording exclusion Off**, or launch:
+**Windows installer.** Build both release binaries, then compile `packaging/windows/oxide.iss` with Inno Setup 6:
 
 ```sh
-oxide-app --normal
+cargo build --workspace --release --locked
+iscc packaging/windows/oxide.iss
 ```
 
-This is an explicit request to disable recording exclusion and show the window.
+The installer (`dist/Oxide-Setup-<version>.exe`) installs per user, adds a Start-menu shortcut, and the app and installer carry the Oxide icon.
+
+## Using Oxide
+
+1. Choose a capture directory and optional existing screenshot folders in Settings.
+2. Create a note and watch for **Saved locally**. Notes autosave after about 500 ms of inactivity.
+3. Capture a display, or select a region of a frozen display preview. Region coordinates can also be entered with the keyboard.
+   - New captures attach to the note that was active when the capture started.
+   - Library captures can stay unattached.
+   - **Region into a new note** creates a note for the capture.
+4. Use **Copy text from region** to copy recognized text without saving an image, optionally joining lines into one paragraph.
+5. Search notes, screenshots or **All** results. Open an image to see highlighted lines, copy text, insert lines into a note, or attach it elsewhere.
+6. Tag notes and screenshots. Tags appear in the sidebar. **Today** opens or creates a note titled with the current date.
+7. Export a note to Markdown with copied images and relative links. Notes go to a persistent note trash; images go to the recoverable system trash after confirmation.
+
+Markdown is accepted as text; there is no rich-text editor or rendered preview yet.
 
 ### Shortcuts
 
@@ -66,28 +113,14 @@ This is an explicit request to disable recording exclusion and show the window.
 | Summon and start a new note | Alt+Shift+N |
 | New note | Ctrl+N / Cmd+N |
 | Save now | Ctrl+S / Cmd+S |
-| Search focus | Ctrl+F / Cmd+F |
+| Search focus | Ctrl+K or Ctrl+F / Cmd+K or Cmd+F |
 | Close panel / hide | Escape |
 
-Global shortcuts are configurable, validated for duplicate assignments, and report registration conflicts. Closing the main window hides the resident app; **Quit** saves pending edits before exiting. Relaunching summons the resident instance. Login startup is optional.
-
-## Local OCR and offline use
-
-The separate Rust reader uses **ocrs + RTen CPU inference**. It downloads two checksum-pinned ONNX model files from the model publisher on first use, and verifies cached hashes on loading. Image pixels and recognized text are never uploaded. The first download requires internet; notes, capture, and cached search work without it.
-
-Prepare models explicitly:
-
-```sh
-cargo run -p oxide-worker -- --setup-models
-```
-
-After provisioning, set `OXIDE_OFFLINE=1` to prohibit model-download attempts. The models can also be supplied in the workspace's `models/` directory using the exact names and SHA-256 pins in `crates/ocr/src/lib.rs`.
-
-OCR keeps raw strings and normalized line boxes. This engine does not expose recognition confidence; stored confidence is `null`, not a fabricated score. Current models target Latin text; measured multilingual accuracy is not claimed.
+Global shortcuts are configurable in Settings, validated for duplicates, and report registration conflicts. Closing the window hides the resident app; **Quit** saves pending edits before exiting. Launching Oxide again summons the running instance.
 
 ### Search
 
-Text terms are literal substrings, and all terms must occur in the same note or screenshot. Screenshot terms may span OCR lines. Quotes, percent signs, underscores, and FTS keywords cannot inject SQL or change the search grammar.
+Text terms are literal substrings, and all terms must occur in the same note or screenshot. Screenshot terms may span OCR lines. Quotes, percent signs, underscores and FTS keywords cannot inject SQL or change the search grammar.
 
 ```text
 database error
@@ -98,21 +131,64 @@ tag:work invoice
 app:firefox
 ```
 
-Folder and `app:` filters scope results to screenshots. `tag:` matches notes and screenshots; several tags must all be present. The **Filters** menu provides date and folder controls. Dates use local calendar boundaries, note update time, and screenshot capture time (file modification time at import/recovery for imported or recovered images). Detail identifies the stored timestamp provenance; older managed records may show unknown legacy provenance. Invalid complete dates produce feedback. Results have Load more controls. Similarity grouping and approximate/semantic search are outside this build.
+- **Scope:** folder (`in:`) and `app:` filters scope results to screenshots. `tag:` matches notes and screenshots; several tags must all be present.
+- **Filters menu:** offers date and folder controls.
+- **Dates:** use local calendar days, a note's last edit time, and a screenshot's capture time. For imported or recovered images, that is the file's modification time. The detail view shows which timestamp was stored.
+- **Results:** have Load more controls.
+
+Semantic or approximate search is not part of this build.
+
+### Capture privacy
+
+- **Capture source.** Each capture records the foreground app and window title (Windows and X11). The detail view shows it, and `app:` filters by it. Oxide's own window is never recorded as a source.
+- **Never capture.** Settings → General skips a capture while the active window's app or title contains a listed entry. Defaults cover common password managers and private-browsing windows. Wayland exposes no active window, so the list cannot match there.
+- **Redaction.** **Redact selected…** in the image detail view paints opaque black over the selected OCR lines. After confirmation it rewrites the original file in place, removes the text from search, and reads the image again. This changes the original image and cannot be undone.
+
+### Recording exclusion (Windows)
+
+The **Recording exclusion** toggle appears in the header and in Settings.
+
+- **On:** applies `WDA_EXCLUDEFROMCAPTURE` to Oxide's window before content is shown. Menus and dialogs drawn inside that window inherit it.
+- **Off:** allows ordinary recording and sharing of Oxide.
+- The preference survives restart. Switching does not restart the app or clear notes or search.
+- Oxide always omits its own UI from its screenshots, independently of this toggle.
+
+Exclusion is best-effort. It is **not yet runtime-validated** for OBS, Zoom, Teams or Meet, `PrintWindow`-based capture ignores it, and local software can turn it off. See [SECURITY](SECURITY.md) for the full threat model. Linux builds show exclusion as unavailable.
+
+If a treatment change fails, Oxide hides private content. Use the tray action **Recording exclusion Off**, or launch:
+
+```sh
+oxide-app --normal
+```
+
+## Local OCR and offline use
+
+The separate reader uses **ocrs with RTen CPU inference**. On first use it downloads two checksum-pinned ONNX model files and verifies their hashes on every load. Image pixels and recognized text are never uploaded. Notes, capture and cached search work without a network.
+
+```sh
+cargo run -p oxide-worker --locked -- --setup-models
+```
+
+- **Offline:** after provisioning, set `OXIDE_OFFLINE=1` to prohibit download attempts.
+- **Manual models:** you can also place the models in the workspace's `models/` directory, using the exact names and SHA-256 pins in `crates/ocr/src/lib.rs`.
+- **Output:** OCR keeps raw strings and normalized line boxes. The engine exposes no recognition confidence, so stored confidence is `null`, not a fabricated score.
+- **Languages:** current models target Latin text.
 
 ## Storage and recovery
 
-- SQLite uses WAL, foreign keys, FULL durability, and transactional note/FTS updates.
-- Notes, stable screenshot IDs, and attachment relationships are canonical. OCR text and thumbnails are derived and can be rebuilt independently.
-- Image originals live in the chosen capture directory or their existing imported locations. They are not stored as database blobs.
-- Manual imports remain indexed independently of watched-folder selection. Removed watched folders lose derived searchable content while linked-note metadata is retained.
-- Acknowledged note saves survive restart; a still-unacknowledged edit interval can be lost on forced process termination. Save failures retain the editor buffer and expose retry/export.
-- Unsupported schema versions are refused without resetting data. Schema 1–3 → schema 4 migration (tags and capture sources) makes a no-clobber SQLite backup first and preserves existing timestamps/relationships. A migrated database cannot be opened by older builds.
-- Keep screenshot originals and watched roots outside the derived cache. Cache clearing removes numeric `.jpg` thumbnail artifacts; registered originals and other filenames are retained.
-- Settings **Back up database** saves a consistent database snapshot. Screenshot originals must be backed up separately. Updates/uninstall do not remove authored data or image directories.
-- Local data, OCR, WAL sidecars, and caches are plaintext under the current OS user; recording exclusion is not encryption.
+- **Database:** SQLite with WAL, foreign keys, FULL durability, and transactional note and search-index updates.
+- **What is kept vs rebuilt:** notes, stable screenshot IDs, attachments and tags are canonical. OCR text and thumbnails are derived and can be rebuilt.
+- **Originals:** images stay as files in the capture directory or their original locations, never as database blobs.
+- **Imports and watched folders:** manual imports stay indexed independently of watched folders. Removing a watched folder drops its derived search content but keeps note links.
+- **Saving:** acknowledged saves survive restart. A failed save keeps your text and offers retry or export.
+- **Schema changes:** unsupported schema versions are refused without resetting data. Migrating to schema 4 (tags and capture sources) makes a no-clobber backup first. A migrated database cannot be opened by older builds.
+- **Cache:** clearing it removes generated thumbnails only. Keep originals and watched folders outside the cache directory.
+- **Backups:** **Back up database** in Settings saves a consistent snapshot; back up screenshot folders separately. Updates and uninstall never remove your data or images.
+- **Encryption:** data, OCR text, WAL files and caches are unencrypted under your OS user. Recording exclusion is not encryption.
 
-Use an isolated workspace for development/testing:
+## Development
+
+Use a disposable workspace so you never touch real data. On Linux keep the path short, because the resident socket path must fit `SUN_LEN`.
 
 ```sh
 oxide-app --data-dir /absolute/path/to/disposable-workspace
@@ -121,31 +197,35 @@ oxide-worker --data-dir /absolute/path/to/disposable-workspace --search "visible
 oxide-worker --data-dir /absolute/path/to/disposable-workspace --ocr /absolute/path/to/image.png
 ```
 
-`--background` starts the resident app hidden. `--no-worker` runs notes/cached search without starting the OCR child. The workspace directory descriptor keeps app/reader config and cache paths consistent. Logs are local (`reader.log`, stderr, optional `RUST_LOG`).
+`--background` starts the app hidden. `--no-worker` runs notes and cached search without the OCR child. Logs are local (`reader.log`, stderr, optional `RUST_LOG`).
 
-## Checks
+Checks (CI runs these on Linux and Windows):
 
 ```sh
 cargo fmt --all --check
 cargo check --workspace --all-targets --locked
 cargo test --workspace --locked
 cargo clippy --workspace --all-targets --locked -- -D warnings
-cargo run -p oxide-worker --example pipeline_smoke -- /absolute/path/to/disposable-workspace
+cargo run -p oxide-worker --example pipeline_smoke --locked -- /absolute/path/to/disposable-workspace
 cargo run -p oxide-core --example search_bench --locked
 xvfb-run -a -s "-screen 0 1280x800x24" python3 tests/gui_smoke.py
 ```
 
-The pipeline check generates a nonprivate fixture, runs actual local OCR, verifies screenshot search/attachments/Markdown export, clears derived caches, and checks saved-note recovery. The X11 GUI check uses real native keyboard events, autosave, saved-pixel verification of own-UI exclusion, hide/resident wake, and restart; it requires libXtst, Xvfb, X11 utilities, and FFmpeg. The isolated synthetic search benchmark covers 10,000 screenshots and 1,000 notes, including short-term and filter-only queries.
+- **Pipeline check:** runs real local OCR on a generated fixture, then checks search, attachments, export, cache clearing and note recovery.
+- **GUI check:** uses real X11 keyboard events to check autosave, own-UI exclusion from captures, hide and wake, and restart. It needs libXtst, Xvfb, X11 utilities and FFmpeg.
+- **Search benchmark:** covers 10,000 screenshots and 1,000 notes.
 
-Windows installer definition: `packaging/windows/oxide.iss` (Inno Setup 6; build both release binaries first). The CI definition covers native Linux/Windows checks; remote execution and actual recorded-output tests remain release gates.
+See [CONTRIBUTING](CONTRIBUTING.md) for conventions and [ARCHITECTURE](ARCHITECTURE.md) for how the pieces fit.
 
-## Documentation
+## Not yet supported
 
-- [Quick start](QUICKSTART.md): install, first note, first capture, search
-- [Architecture](ARCHITECTURE.md): crates, runtime model, data flow, storage and platform matrix
-- [Contributing](CONTRIBUTING.md): setup, checks and conventions
-- [Security](SECURITY.md): threat model and how to report vulnerabilities
-- [Changelog](CHANGELOG.md)
+- Rendered Markdown preview
+- Encryption at rest
+- Multilingual OCR
+- Semantic search
+- Wayland capture
+- macOS
+- Sync
 
 ## License
 
