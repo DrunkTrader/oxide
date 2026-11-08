@@ -14,80 +14,97 @@ impl App {
         let p = Palette::of(ui);
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 12.0;
-            ui.menu_button(
-                RichText::new("Oxide").size(17.0).strong().color(p.text),
-                |ui| {
-                    caption(ui, "A local workspace");
-                    if ui
-                        .button(if self.compact {
-                            "Expand workspace"
-                        } else {
-                            "Compact note panel"
-                        })
-                        .clicked()
-                    {
-                        self.compact = !self.compact;
-                        let size = if self.compact {
-                            winit::dpi::LogicalSize::new(480.0, 620.0)
-                        } else {
-                            winit::dpi::LogicalSize::new(1120.0, 760.0)
-                        };
-                        let _ = self.window.request_inner_size(size);
-                        ui.close();
-                    }
-                    if ui.button("Hide workspace").clicked() {
-                        self.action(Action::Hide, &ui.ctx().clone());
-                        ui.close();
-                    }
-                    if ui.button("Quit Oxide").clicked() {
-                        self.action(Action::Quit, &ui.ctx().clone());
-                        ui.close();
-                    }
-                },
-            );
-            let reserve = if self.compact { 120.0 } else { 520.0 };
-            ui.add_space((ui.available_width() - reserve - 380.0).max(8.0));
-            let width = (ui.available_width() - reserve).clamp(100.0, 380.0);
-            let hint = if cfg!(target_os = "macos") {
-                "⌘K"
-            } else {
-                "Ctrl K"
-            };
-            if search_field(
-                ui,
-                &mut self.query,
-                width,
-                &format!("Search notes and screenshots    {hint}"),
-            )
-            .changed()
-            {
-                self.changed_query();
-            }
-            if quiet(ui, "+")
-                .on_hover_text("New note · Ctrl/Cmd+N")
-                .clicked()
-            {
-                self.new_note();
-            }
-            if !self.compact {
-                self.privacy_control(ui);
-            }
-            if !self.compact {
-                let themes = ["system", "light", "dark"];
-                let mut i = themes
-                    .iter()
-                    .position(|t| *t == self.config.theme)
-                    .unwrap_or(0);
-                if segmented(ui, "theme-quick", &["Auto", "Light", "Dark"], &mut i) {
-                    let mut config = self.config.clone();
-                    config.theme = themes[i].into();
-                    self.save_preferences(config, false);
+            let brand = self
+                .brand
+                .get_or_insert_with(|| brand_texture(ui.ctx()))
+                .clone();
+            let mark = egui::Image::new(&brand)
+                .fit_to_exact_size(egui::vec2(24.0, 24.0))
+                .corner_radius(7);
+            let button = egui::Button::new((mark, bold(RichText::new("Oxide").size(17.0))))
+                .frame_when_inactive(false)
+                .corner_radius(10)
+                .min_size(egui::vec2(0.0, 36.0));
+            egui::containers::menu::MenuButton::from_button(button).ui(ui, |ui| {
+                caption(ui, "A local workspace");
+                if ui
+                    .button(if self.compact {
+                        "Expand workspace"
+                    } else {
+                        "Compact note panel"
+                    })
+                    .clicked()
+                {
+                    self.compact = !self.compact;
+                    let size = if self.compact {
+                        winit::dpi::LogicalSize::new(480.0, 620.0)
+                    } else {
+                        winit::dpi::LogicalSize::new(1120.0, 760.0)
+                    };
+                    let _ = self.window.request_inner_size(size);
+                    ui.close();
                 }
-            }
-            if quiet(ui, "Settings").clicked() {
-                self.draft = self.config.clone();
-                self.settings = true;
-            }
+                if ui.button("Hide workspace").clicked() {
+                    self.action(Action::Hide, &ui.ctx().clone());
+                    ui.close();
+                }
+                if ui.button("Quit Oxide").clicked() {
+                    self.action(Action::Quit, &ui.ctx().clone());
+                    ui.close();
+                }
+            });
+            // Right cluster is laid out from the window edge inward, so Settings stays flush right.
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.spacing_mut().item_spacing.x = 12.0;
+                if ui
+                    .add(
+                        egui::Button::new("Settings")
+                            .corner_radius(10)
+                            .min_size(egui::vec2(0.0, 34.0)),
+                    )
+                    .clicked()
+                {
+                    self.draft = self.config.clone();
+                    self.settings = true;
+                }
+                if !self.compact {
+                    let themes = ["system", "light", "dark"];
+                    let mut i = themes
+                        .iter()
+                        .position(|t| *t == self.config.theme)
+                        .unwrap_or(0);
+                    if segmented(ui, "theme-quick", &["Auto", "Light", "Dark"], &mut i) {
+                        let mut config = self.config.clone();
+                        config.theme = themes[i].into();
+                        self.save_preferences(config, false);
+                    }
+                    self.privacy_control(ui);
+                }
+                if quiet(ui, "+")
+                    .on_hover_text("New note · Ctrl/Cmd+N")
+                    .clicked()
+                {
+                    self.new_note();
+                }
+                // Search takes up to 380 px, centred in the space left between the brand and "+".
+                let width = (ui.available_width() - 16.0).clamp(100.0, 380.0);
+                ui.add_space(((ui.available_width() - width) / 2.0).max(0.0));
+                let hint = if cfg!(target_os = "macos") {
+                    "⌘K"
+                } else {
+                    "Ctrl K"
+                };
+                if search_field(
+                    ui,
+                    &mut self.query,
+                    width,
+                    &format!("Search notes and screenshots    {hint}"),
+                )
+                .changed()
+                {
+                    self.changed_query();
+                }
+            });
         });
         if let Some(error) = &self.query_error {
             ui.colored_label(p.danger, error);
@@ -296,4 +313,21 @@ impl App {
         }
         // Notices are drawn as a floating toast (see `App::ui`).
     }
+}
+
+/// The app icon as a small texture for the header brand mark.
+fn brand_texture(ctx: &egui::Context) -> egui::TextureHandle {
+    let image = match image::load_from_memory(include_bytes!("../../../../assets/icon.png")) {
+        Ok(image) => image
+            .resize(96, 96, image::imageops::FilterType::Lanczos3)
+            .into_rgba8(),
+        // The PNG is embedded at build time; a decode failure shows a plain tile instead.
+        Err(_) => image::RgbaImage::from_pixel(1, 1, image::Rgba([139, 124, 255, 255])),
+    };
+    let size = [image.width() as usize, image.height() as usize];
+    ctx.load_texture(
+        "brand-mark",
+        egui::ColorImage::from_rgba_unmultiplied(size, image.as_raw()),
+        egui::TextureOptions::LINEAR,
+    )
 }
