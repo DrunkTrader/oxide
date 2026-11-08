@@ -42,8 +42,16 @@ jobs:
           name: gui-failure
           path: ${{ runner.temp }}/oxide-gui-failure.png
           if-no-files-found: ignore
+      # Hosted Windows runners have no GPU; Mesa provides a software OpenGL driver for glow.
+      - name: Software OpenGL for Windows GUI
+        if: runner.os == 'Windows'
+        uses: ssciwr/setup-mesa-dist-win@v3
       - name: Windows GUI starts
         if: runner.os == 'Windows'
         run: |
-          $app = Start-Process .\target\debug\oxide-app.exe -ArgumentList @('--data-dir', "$env:RUNNER_TEMP\oxide-ui", '--no-worker', '--smoke-ui') -PassThru -Wait
+          # The app is a GUI-subsystem binary, so capture its output to see why it exits.
+          $err = "$env:RUNNER_TEMP\oxide-ui.err"
+          $out = "$env:RUNNER_TEMP\oxide-ui.out"
+          $app = Start-Process .\target\debug\oxide-app.exe -ArgumentList @('--data-dir', "$env:RUNNER_TEMP\oxide-ui", '--no-worker', '--smoke-ui') -RedirectStandardError $err -RedirectStandardOutput $out -PassThru -Wait
+          Get-Content $out, $err -ErrorAction SilentlyContinue
           if ($app.ExitCode -ne 0) { throw "Native GUI exited with $($app.ExitCode)" }
