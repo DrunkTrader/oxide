@@ -2660,7 +2660,7 @@ dependencies = [
 
 [[package]]
 name = "oxide-app"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "arboard",
@@ -2689,7 +2689,7 @@ dependencies = [
 
 [[package]]
 name = "oxide-core"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "chrono",
@@ -2705,7 +2705,7 @@ dependencies = [
 
 [[package]]
 name = "oxide-ocr"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "image",
@@ -2719,7 +2719,7 @@ dependencies = [
 
 [[package]]
 name = "oxide-worker"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "ab_glyph",
  "anyhow",

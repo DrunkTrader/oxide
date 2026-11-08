@@ -254,6 +254,14 @@ All project documentation lives in [`docs/`](docs):
 | [Security](docs/SECURITY.md) | Threat model and how to report a vulnerability |
 | [Changelog](docs/CHANGELOG.md) | Notable changes per release |
 
+## Support
+
+Oxide is free and open source. If it saves you time, you can [sponsor its development on GitHub](https://github.com/sponsors/DrunkTrader). Found a bug? [Open an issue](https://github.com/DrunkTrader/oxide/issues/new); Settings → About in the app opens one pre-filled with your version and OS.
+
 ## License
 
 Oxide is licensed under the [GNU General Public License v3.0 or later](LICENSE). It bundles the Inter typeface (`assets/fonts/`, SIL Open Font License 1.1) and a patched copy of `egui_commonmark_backend` (`vendor/`, MIT or Apache-2.0).
+
+---
+
+<p align="center">Made by <a href="https://github.com/DrunkTrader">DrunkTrader</a></p>

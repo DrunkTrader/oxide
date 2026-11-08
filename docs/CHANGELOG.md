@@ -2,6 +2,16 @@
 
 All notable changes to Oxide are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims to follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+## [0.1.1] - 2026-11-08
+
+### Added
+
+- Settings → **About** tab: version, "Made by DrunkTrader", **Report a bug** (opens a GitHub issue pre-filled with the Oxide version and OS), source code link, and **Support Oxide** (GitHub Sponsors). Links open in the browser; Oxide makes no network requests.
+- Header: the Oxide menu is now a frameless brand mark (app icon and wordmark), and Settings sits flush with the window's right edge at any width.
+- GitHub Sponsors button on the repository (`.github/FUNDING.yml`) and a Support section in the README.
+
 ## [0.1.0] - 2026-11-08
 
 First public release. It includes the development build below plus everything listed here.

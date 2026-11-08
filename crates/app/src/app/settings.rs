@@ -84,7 +84,7 @@ impl App {
                 segmented(
                     ui,
                     "settings-tabs",
-                    &["General", "Privacy", "Storage", "Shortcuts", "OCR"],
+                    &["General", "Privacy", "Storage", "Shortcuts", "OCR", "About"],
                     &mut self.settings_tab,
                 );
                 ui.add_space(16.0);
@@ -100,7 +100,8 @@ impl App {
                             1 => self.privacy_settings(ui),
                             2 => self.storage_settings(ui),
                             3 => self.shortcut_settings(ui),
-                            _ => self.ocr_settings(ui),
+                            4 => self.ocr_settings(ui),
+                            _ => self.about(ui),
                         }
                         ui.add_space(8.0);
                     });
@@ -331,6 +332,65 @@ impl App {
         });
     }
 
+    fn about(&mut self, ui: &mut egui::Ui) {
+        ui.label(bold(RichText::new("Oxide").size(22.0)));
+        caption(ui, format!("Version {}", env!("CARGO_PKG_VERSION")));
+        ui.add_space(4.0);
+        ui.label("Notes and searchable screenshots, on your device.");
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 4.0;
+            ui.label("Made by");
+            if ui.link("DrunkTrader").clicked() {
+                self.open_link(AUTHOR_URL);
+            }
+        });
+        ui.add_space(18.0);
+        group_title(ui, "Help", "");
+        form_group(ui, |ui| {
+            form_row(
+                ui,
+                "Report a bug",
+                "Found a problem or have an idea? Tell us on GitHub.",
+                |ui| {
+                    if ui.button("Open issue").clicked() {
+                        self.open_link(&bug_report_url());
+                    }
+                },
+            );
+            ui.separator();
+            form_row(ui, "Source code", "", |ui| {
+                if ui.button("GitHub").clicked() {
+                    self.open_link(REPO_URL);
+                }
+            });
+        });
+        ui.add_space(18.0);
+        group_title(ui, "Support", "");
+        form_group(ui, |ui| {
+            form_row(
+                ui,
+                "Support Oxide",
+                "Oxide is free and open source. Donations keep it going.",
+                |ui| {
+                    if primary(ui, "Sponsor").clicked() {
+                        self.open_link(SPONSOR_URL);
+                    }
+                },
+            );
+        });
+        ui.add_space(10.0);
+        caption(
+            ui,
+            "Links open in your browser. Oxide itself never goes online.",
+        );
+    }
+
+    fn open_link(&mut self, url: &str) {
+        if let Err(e) = open::that(url) {
+            self.notice = Some(format!("Could not open {url}: {e}"));
+        }
+    }
+
     fn ocr_settings(&mut self, ui: &mut egui::Ui) {
         group_title(
             ui,
@@ -391,5 +451,52 @@ impl App {
                 },
             );
         });
+    }
+}
+
+const REPO_URL: &str = "https://github.com/DrunkTrader/oxide";
+const AUTHOR_URL: &str = "https://github.com/DrunkTrader";
+const SPONSOR_URL: &str = "https://github.com/sponsors/DrunkTrader";
+
+/// A new-issue link pre-filled with the version and OS; the user reviews it before submitting.
+fn bug_report_url() -> String {
+    let os = match std::env::consts::OS {
+        "windows" => "Windows",
+        "linux" => "Linux",
+        "macos" => "macOS",
+        other => other,
+    };
+    let body = format!(
+        "**Oxide version:** {}\n**OS:** {os} ({})\n\n**What happened?**\n\n\n**Steps to reproduce:**\n1. \n",
+        env!("CARGO_PKG_VERSION"),
+        std::env::consts::ARCH,
+    );
+    format!("{REPO_URL}/issues/new?body={}", percent_encode(&body))
+}
+
+fn percent_encode(text: &str) -> String {
+    let mut out = String::with_capacity(text.len() * 3);
+    for byte in text.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(byte as char)
+            }
+            _ => out.push_str(&format!("%{byte:02X}")),
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bug_report_url_is_encoded_and_prefilled() {
+        assert_eq!(percent_encode("a b*\n~"), "a%20b%2A%0A~");
+        let url = bug_report_url();
+        assert!(url.starts_with("https://github.com/DrunkTrader/oxide/issues/new?body="));
+        assert!(url.contains(env!("CARGO_PKG_VERSION")));
+        assert!(!url[url.find('?').unwrap()..].contains([' ', '\n', '*']));
     }
 }
