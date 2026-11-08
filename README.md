@@ -139,6 +139,13 @@ The pipeline check generates a nonprivate fixture, runs actual local OCR, verifi
 
 Windows installer definition: `packaging/windows/oxide.iss` (Inno Setup 6; build both release binaries first). The CI definition covers native Linux/Windows checks; remote execution and actual recorded-output tests remain release gates.
 
+## Documentation
+
+- [Architecture](ARCHITECTURE.md): crates, runtime model, data flow, storage and platform matrix
+- [Contributing](CONTRIBUTING.md): setup, checks and conventions
+- [Security](SECURITY.md): threat model and how to report vulnerabilities
+- [Changelog](CHANGELOG.md)
+
 ## License
 
 Oxide is licensed under the [GNU General Public License v3.0 or later](LICENSE).
