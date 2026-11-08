@@ -4,6 +4,8 @@ All notable changes to Oxide are documented here. The format follows [Keep a Cha
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-11-08
+
 ### Added
 
 - Settings → **About** tab: version, "Made by DrunkTrader", **Report a bug** (opens a GitHub issue pre-filled with the Oxide version and OS), source code link, and **Support Oxide** (GitHub Sponsors). Links open in the browser; Oxide makes no network requests.

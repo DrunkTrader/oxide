@@ -11,7 +11,7 @@ cargo build --workspace --release --locked
 iscc packaging/windows/oxide.iss
 ```
 
-Run `dist/Oxide-Setup-0.1.0.exe`. It installs for your user only (no admin rights) and adds Oxide to the Start menu.
+Run `dist/Oxide-Setup-0.1.1.exe`. It installs for your user only (no admin rights) and adds Oxide to the Start menu.
 
 **From source (Windows or Linux X11).** Requires Rust 1.95+ and a C compiler:
 
