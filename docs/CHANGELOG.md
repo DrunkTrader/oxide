@@ -14,6 +14,8 @@ All notable changes to Oxide are documented here. The format follows [Keep a Cha
 - Manual redaction of selected OCR lines in the original image.
 - Oxide logo as README banner, window and tray icon, embedded Windows executable icon, and installer icon.
 - Project docs in `docs/`: quick start, architecture, contributing, security policy and this changelog.
+- Release workflow: a `v*` tag builds a `.deb`, `.rpm`, AppImage, Linux tarball, Windows installer and Windows zip, and publishes them with checksums as one GitHub Release.
+- Download stats workflow: a daily snapshot of per-file (per-platform) download counts into `downloads.csv` on the `stats` branch.
 
 ### Changed
 

@@ -1,0 +1,122 @@
+name: Release
+# Push a tag like v0.1.0 (matching the workspace version in Cargo.toml) to build every package
+# and publish one GitHub Release. Each distro gets its own file, so GitHub's per-file download
+# count is a per-distro download count (see download-stats.yml).
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to (re)build, e.g. v0.1.0"
+        required: true
+permissions:
+  contents: read
+env:
+  TAG: ${{ github.event.inputs.tag || github.ref_name }}
+
+jobs:
+  linux:
+    # 22.04's older glibc lets the binaries, tarball and AppImage run on more distros.
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: "${{ env.TAG }}" }
+      - name: Version matches the tag
+        run: |
+          V=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)
+          [ "v$V" = "$TAG" ] || { echo "Tag $TAG does not match Cargo.toml version $V"; exit 1; }
+          echo "VERSION=$V" >> "$GITHUB_ENV"
+      - name: Toolchain
+        run: rustup update stable
+      - name: Build
+        run: cargo build --release --workspace --locked
+      - name: Packaging tools
+        run: |
+          cargo install --locked cargo-deb@3.8.0 cargo-generate-rpm@0.21.1
+          sudo apt-get update && sudo apt-get install -y dpkg-dev file
+      - name: Debian / Ubuntu (.deb)
+        run: cargo deb -p oxide-app --no-build --no-strip --output "dist/oxide_${VERSION}_amd64.deb"
+      - name: Fedora / RHEL / openSUSE (.rpm)
+        run: cargo generate-rpm -p crates/app --output "dist/oxide-${VERSION}-1.x86_64.rpm"
+      - name: Any distro (.tar.gz)
+        run: |
+          D="oxide-${VERSION}-linux-x86_64"; mkdir -p "$D"
+          cp target/release/oxide-app target/release/oxide-worker README.md LICENSE "$D/"
+          cp packaging/linux/oxide.desktop "$D/"; cp assets/icon.png "$D/oxide.png"
+          tar -czf "dist/$D.tar.gz" "$D"
+      - name: Any distro (AppImage)
+        run: |
+          A=Oxide.AppDir; mkdir -p "$A/usr/bin"
+          cp target/release/oxide-app target/release/oxide-worker "$A/usr/bin/"
+          cp packaging/linux/oxide.desktop "$A/oxide.desktop"; cp assets/icon.png "$A/oxide.png"
+          printf '#!/bin/sh\nHERE=$(dirname "$(readlink -f "$0")")\nexec "$HERE/usr/bin/oxide-app" "$@"\n' > "$A/AppRun"; chmod +x "$A/AppRun"
+          curl -fsSL -o appimagetool https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
+          chmod +x appimagetool
+          ARCH=x86_64 APPIMAGE_EXTRACT_AND_RUN=1 ./appimagetool "$A" "dist/Oxide-${VERSION}-x86_64.AppImage"
+      - name: Check packages
+        run: |
+          dpkg-deb --info dist/*.deb | grep -E 'Package|Version|Depends'
+          ls -la dist
+      - uses: actions/upload-artifact@v4
+        with: { name: linux, path: dist/*, if-no-files-found: error }
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: "${{ env.TAG }}" }
+      - name: Toolchain
+        run: rustup update stable
+      - name: Build
+        run: cargo build --release --workspace --locked
+      - name: Installer (.exe) and portable (.zip)
+        shell: pwsh
+        run: |
+          $v = $env:TAG.TrimStart('v')
+          $inno = "${env:ProgramFiles(x86)}\Inno Setup 6"
+          if (-not (Test-Path "$inno\ISCC.exe")) { choco install innosetup -y --no-progress }
+          & "$inno\ISCC.exe" /DAppVersion=$v packaging\windows\oxide.iss
+          if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed" }
+          $d = "oxide-$v-windows-x86_64"; New-Item -ItemType Directory $d | Out-Null
+          Copy-Item target\release\oxide-app.exe, target\release\oxide-worker.exe, README.md, LICENSE $d
+          Compress-Archive -Path $d -DestinationPath "dist\$d.zip"
+          Get-ChildItem dist
+      - uses: actions/upload-artifact@v4
+        with: { name: windows, path: dist/*, if-no-files-found: error }
+
+  publish:
+    needs: [linux, windows]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { path: dist, merge-multiple: true }
+      - name: Checksums
+        run: cd dist && sha256sum * > SHA256SUMS.txt && cat SHA256SUMS.txt
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          V=${TAG#v}
+          {
+            echo "## Download"
+            echo
+            echo "| Your system | File |"
+            echo "|---|---|"
+            echo "| Debian, Ubuntu, Linux Mint, Pop!_OS | \`oxide_${V}_amd64.deb\` |"
+            echo "| Fedora, RHEL, openSUSE | \`oxide-${V}-1.x86_64.rpm\` |"
+            echo "| Any Linux distribution | \`Oxide-${V}-x86_64.AppImage\` or \`oxide-${V}-linux-x86_64.tar.gz\` |"
+            echo "| Windows 10/11, installer | \`Oxide-Setup-${V}.exe\` |"
+            echo "| Windows 10/11, portable | \`oxide-${V}-windows-x86_64.zip\` |"
+            echo
+            echo "Verify a download with \`sha256sum -c SHA256SUMS.txt --ignore-missing\`."
+            echo "Linux screenshot capture needs an X11 session; Wayland capture is not supported yet."
+          } > notes.md
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/* --clobber
+          else
+            gh release create "$TAG" dist/* --title "Oxide $V" --notes-file notes.md --generate-notes
+          fi

@@ -58,6 +58,21 @@ Oxide keeps your notes and screenshots together and makes the text inside every 
 | Recording exclusion | Yes | No | No | Not built |
 | Tray icon | Yes | No | No | Not built |
 
+## Install
+
+Download the file for your system from the [latest release](https://github.com/DrunkTrader/oxide/releases/latest):
+
+| Your system | File | Install |
+|---|---|---|
+| Debian, Ubuntu, Linux Mint, Pop!_OS | `oxide_<version>_amd64.deb` | `sudo apt install ./oxide_<version>_amd64.deb` |
+| Fedora, RHEL, openSUSE | `oxide-<version>-1.x86_64.rpm` | `sudo dnf install ./oxide-<version>-1.x86_64.rpm` (openSUSE: `sudo zypper install ./…`) |
+| Any Linux distribution | `Oxide-<version>-x86_64.AppImage` | `chmod +x Oxide-*.AppImage && ./Oxide-*.AppImage` |
+| Any Linux distribution | `oxide-<version>-linux-x86_64.tar.gz` | extract and run `./oxide-app` (keep `oxide-worker` beside it) |
+| Windows 10/11 | `Oxide-Setup-<version>.exe` | run the installer (per user, no admin rights) |
+| Windows 10/11, portable | `oxide-<version>-windows-x86_64.zip` | extract and run `oxide-app.exe` |
+
+Each release lists `SHA256SUMS.txt` to verify downloads. Releases are built by `.github/workflows/release.yml` when a `v*` tag is pushed.
+
 ## Getting started
 
 New to Oxide? Follow the **[Quick start](docs/QUICKSTART.md)**.
