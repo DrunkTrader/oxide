@@ -174,6 +174,7 @@ impl App {
         {
             notice = Some(format!("{e:#}"));
         }
+        install_fonts(&creation.egui_ctx);
         apply_theme(&creation.egui_ctx, &config);
         window.set_window_level(if config.always_on_top {
             winit::window::WindowLevel::AlwaysOnTop

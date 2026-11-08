@@ -62,6 +62,26 @@ impl Palette {
     }
 }
 
+/// Inter (OFL, variable weight axis) as the UI font, so bold and headings can use real weights.
+pub(super) fn install_fonts(context: &egui::Context) {
+    let mut fonts = egui::FontDefinitions::default();
+    fonts.font_data.insert(
+        "Inter".to_owned(),
+        std::sync::Arc::new(egui::FontData::from_static(include_bytes!(
+            "../../../../assets/fonts/Inter.ttf"
+        ))),
+    );
+    if let Some(family) = fonts.families.get_mut(&egui::FontFamily::Proportional) {
+        family.insert(0, "Inter".to_owned());
+    }
+    context.set_fonts(fonts);
+}
+
+/// Strong text with a real semibold weight (egui's `strong()` alone only changes colour).
+pub(super) fn bold(text: RichText) -> RichText {
+    text.strong().variation(*b"wght", 620.0)
+}
+
 pub(super) fn apply_theme(context: &egui::Context, config: &Config) {
     context.set_theme(match config.theme.as_str() {
         "light" => egui::ThemePreference::Light,
@@ -199,7 +219,7 @@ fn filled(ui: &mut egui::Ui, text: &str, base: Color32) -> egui::Response {
         base.lerp_to_gamma(Color32::WHITE, 0.12 * t)
     };
     ui.add(
-        egui::Button::new(RichText::new(text).color(Color32::WHITE).strong())
+        egui::Button::new(bold(RichText::new(text).color(Color32::WHITE)))
             .fill(fill)
             .stroke(egui::Stroke::NONE)
             .corner_radius(10)
@@ -224,7 +244,7 @@ pub(super) fn quiet(ui: &mut egui::Ui, text: &str) -> egui::Response {
 }
 
 pub(super) fn section(ui: &mut egui::Ui, title: &str, description: &str) {
-    ui.label(RichText::new(title).size(24.0).strong());
+    ui.label(bold(RichText::new(title).size(24.0)));
     if !description.is_empty() {
         ui.add_space(2.0);
         ui.label(
@@ -237,7 +257,7 @@ pub(super) fn section(ui: &mut egui::Ui, title: &str, description: &str) {
 
 /// A smaller heading for a group inside a page or the settings sheet.
 pub(super) fn group_title(ui: &mut egui::Ui, title: &str, description: &str) {
-    ui.label(RichText::new(title).size(16.0).strong());
+    ui.label(bold(RichText::new(title).size(16.0)));
     if !description.is_empty() {
         ui.label(
             RichText::new(description)

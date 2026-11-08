@@ -32,3 +32,7 @@ opt-level = 2
 [profile.release]
 lto = "thin"
 strip = "debuginfo"
+
+# Real bold in the Markdown preview; see vendor/egui_commonmark_backend/PATCHED.md
+[patch.crates-io]
+egui_commonmark_backend = { path = "vendor/egui_commonmark_backend" }

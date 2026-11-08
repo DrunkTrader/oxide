@@ -15,6 +15,7 @@ First public release. It includes the development build below plus everything li
 - Tags on notes and screenshots, a sidebar tag list, and the `tag:` search filter.
 - Manual redaction of selected OCR lines in the original image.
 - Rendered Markdown preview for notes: an Edit / Preview switch in the editor (Ctrl/Cmd+E), with headings, lists, task lists (checkboxes can be ticked in Preview), tables, quotes and code. Remote images are never loaded. Note list excerpts show plain text instead of Markdown syntax.
+- Inter (variable weight, SIL OFL 1.1) bundled as the UI font, so Markdown bold, headings and titles use real weights. The Markdown renderer's style code is patched for this in `vendor/egui_commonmark_backend` (see `PATCHED.md`).
 - Oxide logo as README banner, window and tray icon, embedded Windows executable icon, and installer icon.
 - Project docs in `docs/`: quick start, architecture, contributing, security policy and this changelog.
 - Release workflow: a `v*` tag builds a `.deb`, `.rpm`, AppImage, Linux tarball, Windows installer and Windows zip, and publishes them with checksums as one GitHub Release.

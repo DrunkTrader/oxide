@@ -101,7 +101,7 @@ def main():
             chord("Control_L", "n")
             wait_for(lambda: rows("SELECT count(*) FROM notes") == [(1,)])
             time.sleep(0.5)
-            click(480, 240)
+            click(700, 330)  # well inside the note body, clear of the title and tag row
             time.sleep(0.5)
             text("Persisted native note body")
             wait_for(lambda: any("Persisted native note body" in row[0] for row in rows("SELECT body FROM notes")))

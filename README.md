@@ -256,4 +256,4 @@ All project documentation lives in [`docs/`](docs):
 
 ## License
 
-Oxide is licensed under the [GNU General Public License v3.0 or later](LICENSE).
+Oxide is licensed under the [GNU General Public License v3.0 or later](LICENSE). It bundles the Inter typeface (`assets/fonts/`, SIL Open Font License 1.1) and a patched copy of `egui_commonmark_backend` (`vendor/`, MIT or Apache-2.0).
