@@ -7,6 +7,10 @@ use chrono::{Days, Local, NaiveDate, TimeZone};
 pub struct Query {
     pub terms: Vec<String>,
     pub folder: Option<String>,
+    /// Normalized `tag:` filters; every tag must be present.
+    pub tags: Vec<String>,
+    /// `app:` filter on the recorded capture source (app name or window title).
+    pub app: Option<String>,
     pub since: Option<i64>,
     pub until: Option<i64>,
 }
@@ -29,6 +33,18 @@ impl Query {
                 }
                 if !folder.is_empty() {
                     query.folder = Some(folder);
+                }
+                continue;
+            }
+            if let Some(value) = word.strip_prefix("tag:") {
+                if let Some(tag) = normalize_tag(value) {
+                    query.tags.push(tag);
+                }
+                continue;
+            }
+            if let Some(value) = word.strip_prefix("app:") {
+                if !value.is_empty() {
+                    query.app = Some(value.to_owned());
                 }
                 continue;
             }
@@ -60,7 +76,7 @@ impl Query {
             }
             query.terms.push(word);
         }
-        if query.terms.len() > 64 {
+        if query.terms.len() + query.tags.len() > 64 {
             bail!("Search is limited to 64 terms");
         }
         Ok(query)
@@ -79,7 +95,7 @@ pub fn terms_without_filters(input: &str) -> Vec<String> {
     let mut offset = 0;
     while let Some(word) = next_word(input, &mut offset) {
         if word.strip_prefix("in:").is_some()
-            || ["date:", "after:", "before:"]
+            || ["date:", "after:", "before:", "tag:", "app:"]
                 .iter()
                 .any(|prefix| word.starts_with(prefix))
         {
@@ -88,6 +104,19 @@ pub fn terms_without_filters(input: &str) -> Vec<String> {
         terms.push(word);
     }
     terms
+}
+
+/// Tags are lowercase, without a leading `#`, whitespace-free and at most 64 characters.
+pub fn normalize_tag(value: &str) -> Option<String> {
+    let tag: String = value
+        .trim()
+        .trim_start_matches('#')
+        .chars()
+        .filter(|c| !c.is_whitespace() && !c.is_control())
+        .flat_map(char::to_lowercase)
+        .take(64)
+        .collect();
+    (!tag.is_empty()).then_some(tag)
 }
 
 pub(crate) fn normalize_folder(folder: &str) -> String {
@@ -191,6 +220,18 @@ mod tests {
         let q = Query::parse(&format!("{filter} term"))?;
         assert_eq!(q.folder, path.to_str().map(str::to_owned));
         assert_eq!(q.terms, ["term"]);
+        Ok(())
+    }
+
+    #[test]
+    fn tag_and_app_filters_are_not_search_terms() -> Result<()> {
+        let q = Query::parse("error tag:#Work tag:  app:firefox")?;
+        assert_eq!(q.terms, ["error"]);
+        assert_eq!(q.tags, ["work"]);
+        assert_eq!(q.app.as_deref(), Some("firefox"));
+        assert_eq!(terms_without_filters("x tag:a app:b"), ["x"]);
+        assert_eq!(normalize_tag(" #Big Idea "), Some("bigidea".into()));
+        assert_eq!(normalize_tag("#"), None);
         Ok(())
     }
 

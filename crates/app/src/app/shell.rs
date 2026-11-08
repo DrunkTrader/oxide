@@ -15,7 +15,7 @@ impl App {
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 12.0;
             ui.menu_button(
-                RichText::new("OXIDE").size(17.0).strong().color(p.text),
+                RichText::new("Oxide").size(17.0).strong().color(p.text),
                 |ui| {
                     caption(ui, "A local workspace");
                     if ui
@@ -103,6 +103,27 @@ impl App {
     }
 
     pub(super) fn workspace_rail(&mut self, ui: &mut egui::Ui) {
+        // Actions stay pinned; the lists above them scroll when they outgrow the window.
+        egui::Panel::bottom("rail-actions")
+            .frame(egui::Frame::NONE)
+            .show(ui, |ui| {
+                ui.add_space(12.0);
+                if primary(ui, "+ New note").clicked() {
+                    self.new_note();
+                }
+                ui.add_space(4.0);
+                ui.menu_button("Capture…", |ui| {
+                    self.capture_controls(ui);
+                });
+                ui.add_space(12.0);
+                caption(ui, "Stored on this device");
+            });
+        egui::ScrollArea::vertical()
+            .id_salt("rail-lists")
+            .show(ui, |ui| self.rail_lists(ui));
+    }
+
+    fn rail_lists(&mut self, ui: &mut egui::Ui) {
         ui.add_space(14.0);
         caption(ui, "Workspace");
         ui.add_space(4.0);
@@ -119,6 +140,28 @@ impl App {
                 self.navigate(library, all, false);
             }
         }
+        let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+        let on_today = !self.library
+            && self
+                .editor
+                .note
+                .as_ref()
+                .is_some_and(|note| note.title == today);
+        if nav_item(ui, "Today", on_today) {
+            self.navigate(false, false, false);
+            self.defer(AfterSave::Daily);
+        }
+        if !self.all_tags.is_empty() {
+            ui.add_space(22.0);
+            caption(ui, "Tags");
+            for tag in self.all_tags.clone() {
+                let filter = format!("tag:{tag}");
+                if nav_item(ui, &format!("#{tag}"), self.query == filter) {
+                    self.query = filter;
+                    self.navigate(true, true, false);
+                }
+            }
+        }
         ui.add_space(22.0);
         caption(ui, "Collections");
         if self.config.folders.is_empty() {
@@ -132,7 +175,7 @@ impl App {
             let folders = self.config.folders.clone();
             for folder in folders {
                 let label = folder.file_name().unwrap_or_default().to_string_lossy();
-                if nav_item(ui, &format!("▸  {label}"), false) {
+                if nav_item(ui, &label, false) {
                     match folder_filter(&folder) {
                         Ok(filter) => {
                             self.query = filter;
@@ -154,11 +197,14 @@ impl App {
             .map(|note| (note.id, note.title.clone()))
             .collect::<Vec<_>>();
         for (id, title) in recent {
-            if nav_item(
-                ui,
-                &title,
-                !self.library && self.editor.note.as_ref().is_some_and(|note| note.id == id),
-            ) {
+            let selected =
+                !self.library && self.editor.note.as_ref().is_some_and(|note| note.id == id);
+            let title = if title.is_empty() {
+                "Untitled note"
+            } else {
+                &title
+            };
+            if ui.push_id(id, |ui| nav_item(ui, title, selected)).inner {
                 self.navigate(false, false, false);
                 self.defer(AfterSave::Load(id));
             }
@@ -166,16 +212,6 @@ impl App {
         if nav_item(ui, "Note trash", self.trash_view) {
             self.navigate(false, false, true);
         }
-        ui.add_space((ui.available_height() - 152.0).max(20.0));
-        if primary(ui, "+ New note").clicked() {
-            self.new_note();
-        }
-        ui.add_space(4.0);
-        ui.menu_button("Capture…", |ui| {
-            self.capture_controls(ui);
-        });
-        ui.add_space(12.0);
-        caption(ui, "Stored on this device");
     }
 
     pub(super) fn new_note(&mut self) {
@@ -186,7 +222,16 @@ impl App {
     }
 
     pub(super) fn status_bar(&mut self, ui: &mut egui::Ui) {
+        let p = Palette::of(ui);
         ui.horizontal_wrapped(|ui| {
+            let (dot, busy) = if self.editor.error.is_some() {
+                (p.danger, false)
+            } else if self.editor.in_flight.is_some() || self.editor.dirty() {
+                (p.accent, true)
+            } else {
+                (p.success, false)
+            };
+            status_dot(ui, dot, busy);
             caption(
                 ui,
                 if self.editor.in_flight.is_some() {
@@ -222,11 +267,12 @@ impl App {
                 },
             );
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                caption(ui, "●  Local only");
+                caption(ui, "Local only");
+                status_dot(ui, p.success, false);
             });
         });
         if let Some(error) = &self.editor.error {
-            ui.colored_label(Palette::of(ui).danger, error);
+            ui.colored_label(p.danger, error);
         }
         if let Some(error) = &self.status.error {
             caption(ui, error);
@@ -240,36 +286,4 @@ impl App {
             });
         }
     }
-}
-
-fn nav_item(ui: &mut egui::Ui, text: &str, selected: bool) -> bool {
-    let p = Palette::of(ui);
-    let response = ui.add_sized(
-        [ui.available_width(), 34.0],
-        egui::Button::new(RichText::new(text).size(13.0).color(if selected {
-            p.accent_text
-        } else {
-            p.text
-        }))
-        .selected(selected)
-        .right_text("")
-        .truncate()
-        .fill(if selected {
-            p.accent_soft
-        } else {
-            Color32::TRANSPARENT
-        })
-        .stroke(egui::Stroke::NONE),
-    );
-    if selected {
-        ui.painter().rect_filled(
-            egui::Rect::from_min_size(
-                response.rect.min + egui::vec2(0.0, 8.0),
-                egui::vec2(2.0, 18.0),
-            ),
-            1.0,
-            ACCENT,
-        );
-    }
-    response.clicked()
 }

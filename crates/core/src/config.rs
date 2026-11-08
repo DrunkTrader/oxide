@@ -105,6 +105,10 @@ pub struct Config {
     pub hide_shortcut: String,
     pub capture_shortcut: String,
     pub display_shortcut: String,
+    pub text_shortcut: String,
+    pub note_shortcut: String,
+    /// Case-insensitive fragments of app names or window titles that are never captured.
+    pub capture_deny: Vec<String>,
 }
 
 impl Default for Config {
@@ -127,11 +131,35 @@ impl Default for Config {
             hide_shortcut: "Alt+Shift+H".into(),
             capture_shortcut: "Alt+Shift+R".into(),
             display_shortcut: "Alt+Shift+D".into(),
+            text_shortcut: "Alt+Shift+T".into(),
+            note_shortcut: "Alt+Shift+N".into(),
+            capture_deny: [
+                "1Password",
+                "Bitwarden",
+                "KeePass",
+                "InPrivate",
+                "Incognito",
+                "Private Browsing",
+            ]
+            .map(String::from)
+            .into(),
         }
     }
 }
 
 impl Config {
+    /// The deny-list entry matching this capture source, if any.
+    pub fn denied(&self, app: &str, title: &str) -> Option<&str> {
+        let (app, title) = (app.to_lowercase(), title.to_lowercase());
+        self.capture_deny
+            .iter()
+            .find(|entry| {
+                let entry = entry.trim().to_lowercase();
+                app.contains(&entry) || title.contains(&entry)
+            })
+            .map(String::as_str)
+    }
+
     pub fn load(path: &Path) -> Result<Option<Self>> {
         match fs::read_to_string(path) {
             Ok(text) => {
@@ -154,6 +182,14 @@ impl Config {
         }
         if !self.capture_directory.is_absolute() {
             bail!("Capture directory must be an absolute path");
+        }
+        if self.capture_deny.len() > 100
+            || self
+                .capture_deny
+                .iter()
+                .any(|entry| entry.trim().is_empty() || entry.len() > 128)
+        {
+            bail!("Capture deny list entries must be 1-128 characters, at most 100 entries");
         }
         let mut normalized_folders = HashSet::new();
         for root in &self.folders {
@@ -217,6 +253,17 @@ mod tests {
         assert!(!Config::load(&path)?.unwrap().recording_exclusion_enabled);
         Ok(())
     }
+    #[test]
+    fn deny_list_matches_app_or_title_case_insensitively() {
+        let config = Config::default();
+        assert_eq!(config.denied("1password", "Vault"), Some("1Password"));
+        assert_eq!(
+            config.denied("msedge", "Bank - InPrivate - Microsoft Edge"),
+            Some("InPrivate")
+        );
+        assert_eq!(config.denied("code", "main.rs"), None);
+    }
+
     #[test]
     fn malformed_configuration_is_not_unconfigured() -> Result<()> {
         let temp = tempfile::tempdir()?;

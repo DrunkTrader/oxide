@@ -18,6 +18,7 @@ Compression=lzma2
 SolidCompression=yes
 CloseApplications=yes
 RestartApplications=no
+SetupIconFile=..\..\assets\oxide.ico
 UninstallDisplayIcon={app}\oxide-app.exe
 
 [Files]

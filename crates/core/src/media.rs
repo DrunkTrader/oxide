@@ -97,6 +97,49 @@ pub fn save_capture(image: &DynamicImage, destination: &Path) -> Result<std::pat
     bail!("Cannot allocate a collision-free screenshot filename")
 }
 
+/// Paints opaque black over each normalized line box (plus a small margin).
+/// Opaque fill, not blur: blurred text can sometimes be recovered.
+pub fn redact(image: &DynamicImage, lines: &[crate::Line]) -> DynamicImage {
+    let mut pixels = image.to_rgba8();
+    let (width, height) = (pixels.width() as f32, pixels.height() as f32);
+    for line in lines.iter().filter(|line| line.valid()) {
+        let x0 = ((line.x * width).floor() - 2.0).max(0.0) as u32;
+        let y0 = ((line.y * height).floor() - 2.0).max(0.0) as u32;
+        let x1 = (((line.x + line.w) * width).ceil() + 2.0).min(width) as u32;
+        let y1 = (((line.y + line.h) * height).ceil() + 2.0).min(height) as u32;
+        for y in y0..y1 {
+            for x in x0..x1 {
+                pixels.put_pixel(x, y, image::Rgba([0, 0, 0, 255]));
+            }
+        }
+    }
+    DynamicImage::ImageRgba8(pixels)
+}
+
+/// Atomically replaces an original with new pixels in its existing format.
+pub fn replace_image(path: &Path, image: &DynamicImage) -> Result<()> {
+    let format = image::ImageFormat::from_path(path).context("Unsupported original format")?;
+    let parent = path.parent().context("Original has no parent directory")?;
+    let mut temp = tempfile::Builder::new()
+        .prefix(".oxide-")
+        .suffix(".part")
+        .tempfile_in(parent)?;
+    if format == image::ImageFormat::Jpeg {
+        DynamicImage::ImageRgb8(image.to_rgb8()).write_to(&mut temp, format)?;
+    } else {
+        image.write_to(&mut temp, format)?;
+    }
+    temp.as_file().sync_all()?;
+    temp.persist(path)
+        .map_err(|e| e.error)
+        .context("Cannot replace the original image")?;
+    #[cfg(unix)]
+    {
+        File::open(parent)?.sync_all()?;
+    }
+    Ok(())
+}
+
 pub fn thumbnail(paths: &Paths, id: i64, image: &DynamicImage, source: &Path) -> Result<()> {
     paths.ensure_original_location(source)?;
     let thumb = image.thumbnail(480, 320).to_rgb8();
@@ -139,4 +182,30 @@ pub fn export_note(store: &crate::store::Store, id: i64, destination: &Path) -> 
         .map_err(|e| e.error)
         .context("Export note already exists or cannot be saved")?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn redaction_blacks_out_only_the_line_box_and_survives_reload() -> Result<()> {
+        let root = tempfile::tempdir()?;
+        let path = root.path().join("shot.png");
+        image::RgbImage::from_pixel(100, 100, image::Rgb([255, 255, 255])).save(&path)?;
+        let line = crate::Line {
+            text: "secret".into(),
+            x: 0.2,
+            y: 0.2,
+            w: 0.3,
+            h: 0.1,
+            confidence: None,
+        };
+        let redacted = redact(&load_image(&path)?, &[line]);
+        replace_image(&path, &redacted)?;
+        let reloaded = load_image(&path)?.to_rgba8();
+        assert_eq!(reloaded.get_pixel(30, 25).0, [0, 0, 0, 255]);
+        assert_eq!(reloaded.get_pixel(90, 90).0, [255, 255, 255, 255]);
+        Ok(())
+    }
 }

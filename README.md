@@ -1,6 +1,10 @@
-# Oxide
+<p align="center">
+  <img src="assets/logo.png" alt="Oxide logo" width="420">
+</p>
 
-A local native workspace for notes and searchable screenshots, with a user-controlled recording-exclusion toggle on Windows.
+<h1 align="center">Oxide</h1>
+
+<p align="center">A local native workspace for notes and searchable screenshots, with a user-controlled recording-exclusion toggle on Windows.</p>
 
 ## Build and run
 
@@ -17,11 +21,19 @@ Build the complete workspace so `oxide-worker` is beside `oxide-app`. Notes and 
 
 1. Choose a capture directory and optional existing screenshot folders in Settings.
 2. Create a note, enter a title/body, and watch the **Saved locally** acknowledgement. Notes autosave after approximately 500 ms of inactivity.
-3. Capture a display or select a rectangular region of a frozen display preview. Region coordinates can also be entered using the keyboard. New captures attach to the note active when capture started; library captures can remain unattached.
-4. Search notes, screenshots, or **All** results. Open an image to inspect line highlights, copy OCR text, insert selected lines into a note, or attach it to another note.
-5. Export a note to Markdown with copied images and relative links. Move notes to persistent note trash; image deletion uses recoverable system trash after confirmation.
+3. Capture a display or select a rectangular region of a frozen display preview. Region coordinates can also be entered using the keyboard. New captures attach to the note active when capture started; library captures can remain unattached. **Region into a new note** creates a note for the capture instead.
+4. **Copy text from region** recognizes text in a selected region and copies it to the clipboard without saving the image. Optionally join the lines into one paragraph.
+5. Search notes, screenshots, or **All** results. Open an image to inspect line highlights, copy OCR text, insert selected lines into a note, or attach it to another note.
+6. Tag notes and screenshots. Tags appear in the sidebar and filter search with `tag:`. **Today** opens (or creates) a note titled with the current date.
+7. Export a note to Markdown with copied images and relative links. Move notes to persistent note trash; image deletion uses recoverable system trash after confirmation.
 
 Markdown is accepted as text; this development build does not provide a rich-text editor or rendered Markdown preview.
+
+### Capture privacy
+
+- Each capture records the foreground app and window title it came from (Windows and X11). The detail view shows it, and `app:` filters search by it. Oxide's own window is never recorded as a source.
+- **Never capture** (Settings → General) skips a capture while the active window's app or title contains a listed entry. Defaults cover common password managers and private-browsing windows. Wayland does not expose the active window, so the list cannot match there.
+- **Redact selected…** in the image detail view paints opaque black over the selected OCR lines, rewrites the original file in place after confirmation, removes their text from search, and reads the image again. This changes the original image file and cannot be undone.
 
 ### Recording exclusion
 
@@ -50,6 +62,8 @@ This is an explicit request to disable recording exclusion and show the window.
 | Hide all | Alt+Shift+H |
 | Capture region | Alt+Shift+R |
 | Capture display | Alt+Shift+D |
+| Copy text from region | Alt+Shift+T |
+| Summon and start a new note | Alt+Shift+N |
 | New note | Ctrl+N / Cmd+N |
 | Save now | Ctrl+S / Cmd+S |
 | Search focus | Ctrl+F / Cmd+F |
@@ -80,9 +94,11 @@ database error
 date:2026-10-07
 after:2026-10-01 before:2026-11-01
 in:"/home/user/Pictures/Screenshots" error
+tag:work invoice
+app:firefox
 ```
 
-Folder filters scope results to screenshots. The **Filters** menu provides date and folder controls. Dates use local calendar boundaries, note update time, and screenshot capture time (file modification time at import/recovery for imported or recovered images). Detail identifies the stored timestamp provenance; older managed records may show unknown legacy provenance. Invalid complete dates produce feedback. Results have Load more controls. Similarity grouping and approximate/semantic search are outside this build.
+Folder and `app:` filters scope results to screenshots. `tag:` matches notes and screenshots; several tags must all be present. The **Filters** menu provides date and folder controls. Dates use local calendar boundaries, note update time, and screenshot capture time (file modification time at import/recovery for imported or recovered images). Detail identifies the stored timestamp provenance; older managed records may show unknown legacy provenance. Invalid complete dates produce feedback. Results have Load more controls. Similarity grouping and approximate/semantic search are outside this build.
 
 ## Storage and recovery
 
@@ -91,7 +107,7 @@ Folder filters scope results to screenshots. The **Filters** menu provides date 
 - Image originals live in the chosen capture directory or their existing imported locations. They are not stored as database blobs.
 - Manual imports remain indexed independently of watched-folder selection. Removed watched folders lose derived searchable content while linked-note metadata is retained.
 - Acknowledged note saves survive restart; a still-unacknowledged edit interval can be lost on forced process termination. Save failures retain the editor buffer and expose retry/export.
-- Unsupported schema versions are refused without resetting data. Schema 1/2 → schema 3 migration makes a no-clobber SQLite backup first and preserves existing timestamps/relationships.
+- Unsupported schema versions are refused without resetting data. Schema 1–3 → schema 4 migration (tags and capture sources) makes a no-clobber SQLite backup first and preserves existing timestamps/relationships. A migrated database cannot be opened by older builds.
 - Keep screenshot originals and watched roots outside the derived cache. Cache clearing removes numeric `.jpg` thumbnail artifacts; registered originals and other filenames are retained.
 - Settings **Back up database** saves a consistent database snapshot. Screenshot originals must be backed up separately. Updates/uninstall do not remove authored data or image directories.
 - Local data, OCR, WAL sidecars, and caches are plaintext under the current OS user; recording exclusion is not encryption.
@@ -123,3 +139,6 @@ The pipeline check generates a nonprivate fixture, runs actual local OCR, verifi
 
 Windows installer definition: `packaging/windows/oxide.iss` (Inno Setup 6; build both release binaries first). The CI definition covers native Linux/Windows checks; remote execution and actual recorded-output tests remain release gates.
 
+## License
+
+Oxide is licensed under the [GNU General Public License v3.0 or later](LICENSE).

@@ -39,6 +39,8 @@ pub struct Screenshot {
     pub ocr_state: String,
     pub ocr_error: Option<String>,
     pub updated_at: i64,
+    pub source_app: Option<String>,
+    pub source_title: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

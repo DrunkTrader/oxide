@@ -33,10 +33,10 @@ impl App {
         let current = self.editor.note.as_ref().map(|note| note.id);
         let mut clicked = None;
         let mut restored = None;
-        let p = Palette::of(ui);
+        let row_height = if self.trash_view { 96.0 } else { 52.0 };
         egui::ScrollArea::vertical()
             .id_salt("notes-list")
-            .show_rows(ui, 82.0, self.notes.len(), |ui, range| {
+            .show_rows(ui, row_height, self.notes.len(), |ui, range| {
                 for index in range {
                     let note = &self.notes[index];
                     ui.push_id(note.id, |ui| {
@@ -45,43 +45,20 @@ impl App {
                         } else {
                             &note.title
                         };
-                        let selected = current == Some(note.id);
-                        let button = egui::Button::new(RichText::new(title).strong())
-                            .right_text("")
-                            .selected(selected)
-                            .truncate()
-                            .stroke(egui::Stroke::NONE)
-                            .fill(if selected {
-                                p.accent_soft
-                            } else {
-                                Color32::TRANSPARENT
-                            });
-                        if ui.add_sized([ui.available_width(), 30.0], button).clicked() {
+                        let date = chrono::DateTime::from_timestamp_millis(note.updated_at)
+                            .map(|date| {
+                                date.with_timezone(&chrono::Local)
+                                    .format("%b %-d")
+                                    .to_string()
+                            })
+                            .unwrap_or_default();
+                        let detail = format!("{date}   {}", note.excerpt.replace('\n', " ").trim());
+                        if list_row(ui, title, detail.trim(), current == Some(note.id)) {
                             clicked = Some(note.id);
                         }
-                        ui.add(
-                            egui::Label::new(
-                                RichText::new(note.excerpt.replace('\n', " "))
-                                    .size(12.0)
-                                    .color(p.muted),
-                            )
-                            .truncate(),
-                        );
-                        if self.trash_view {
-                            if quiet(ui, "Restore note").clicked() {
-                                restored = Some(note.id);
-                            }
-                        } else if let Some(date) =
-                            chrono::DateTime::from_timestamp_millis(note.updated_at)
-                        {
-                            caption(
-                                ui,
-                                date.with_timezone(&chrono::Local)
-                                    .format("%b %-d · %H:%M")
-                                    .to_string(),
-                            );
+                        if self.trash_view && quiet(ui, "Restore note").clicked() {
+                            restored = Some(note.id);
                         }
-                        ui.add_space(8.0);
                     });
                 }
             });
@@ -92,9 +69,7 @@ impl App {
             self.send(Request::NoteTrash(id, false));
         }
         if self.notes.len() >= self.limit && quiet(ui, "Load more notes").clicked() {
-            self.limit += 50;
-            self.refresh_pending = false;
-            self.refresh();
+            self.load_more();
         }
     }
 
@@ -155,19 +130,42 @@ impl App {
         });
         ui.add_space(18.0);
         let mut changed = false;
+        let mut tag_change = None;
         ui.add_enabled_ui(!trashed && !self.switching_note, |ui| {
             if let Some(note) = &mut self.editor.note {
-                changed |= ui
-                    .add(
-                        egui::TextEdit::singleline(&mut note.title)
-                            .id(egui::Id::new(("note-title", id)))
-                            .hint_text("Untitled note")
-                            .font(egui::FontId::proportional(28.0))
-                            .frame(egui::Frame::NONE)
-                            .margin(egui::vec2(0.0, 4.0))
-                            .desired_width(f32::INFINITY),
-                    )
-                    .changed();
+                let title = ui.add(
+                    egui::TextEdit::singleline(&mut note.title)
+                        .id(egui::Id::new(("note-title", id)))
+                        .hint_text("Untitled note")
+                        .font(egui::FontId::proportional(28.0))
+                        .frame(egui::Frame::NONE)
+                        .margin(egui::vec2(0.0, 4.0))
+                        .desired_width(f32::INFINITY),
+                );
+                if ui.data_mut(|data| data.remove_temp::<i64>(egui::Id::new("focus-title")))
+                    == Some(id)
+                {
+                    // Select the placeholder title so the first keystroke replaces it.
+                    let mut state = egui::text_edit::TextEditState::load(ui.ctx(), title.id)
+                        .unwrap_or_default();
+                    state
+                        .cursor
+                        .set_char_range(Some(egui::text_selection::CCursorRange::two(
+                            egui::text::CCursor::new(0),
+                            egui::text::CCursor::new(note.title.chars().count()),
+                        )));
+                    state.store(ui.ctx(), title.id);
+                    title.request_focus();
+                }
+                changed |= title.changed();
+                if !trashed {
+                    let mut input = std::mem::take(&mut self.tag_input);
+                    if let Some(tags) = screenshots::tag_row(ui, &self.note_tags, &mut input) {
+                        self.note_tags = tags.clone();
+                        tag_change = Some(tags);
+                    }
+                    self.tag_input = input;
+                }
                 ui.add_space(12.0);
                 egui::ScrollArea::vertical()
                     .id_salt("note-editor")
@@ -190,6 +188,9 @@ impl App {
         });
         if changed {
             self.editor.changed();
+        }
+        if let Some(tags) = tag_change {
+            self.send(Request::SetNoteTags(id, tags));
         }
         if trashed {
             caption(ui, "Restore this note to continue editing.");

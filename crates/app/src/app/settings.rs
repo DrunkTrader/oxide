@@ -136,6 +136,43 @@ impl App {
                 "This platform has no supported recording-exclusion mechanism. Notes and capture remain available."
             },
         );
+        ui.add_space(24.0);
+        section(
+            ui,
+            "Never capture",
+            "Captures are skipped while the active window's app or title contains one of these.",
+        );
+        ui.add_space(12.0);
+        let mut remove = None;
+        for (index, entry) in self.draft.capture_deny.iter().enumerate() {
+            ui.horizontal(|ui| {
+                ui.label(entry);
+                if quiet(ui, "Remove").clicked() {
+                    remove = Some(index);
+                }
+            });
+        }
+        if let Some(index) = remove {
+            self.draft.capture_deny.remove(index);
+        }
+        ui.horizontal(|ui| {
+            let response = ui.add(
+                egui::TextEdit::singleline(&mut self.deny_input)
+                    .hint_text("App or window title")
+                    .desired_width(220.0),
+            );
+            let submitted = response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+            if (ui.button("Add").clicked() || submitted) && !self.deny_input.trim().is_empty() {
+                self.draft
+                    .capture_deny
+                    .push(self.deny_input.trim().chars().take(128).collect());
+                self.deny_input.clear();
+            }
+        });
+        caption(
+            ui,
+            "Matching needs the active window's name, which Wayland does not provide.",
+        );
     }
 
     fn storage_settings(&mut self, ui: &mut egui::Ui) {
@@ -209,6 +246,8 @@ impl App {
                     ("Hide all", &mut self.draft.hide_shortcut),
                     ("Capture region", &mut self.draft.capture_shortcut),
                     ("Capture display", &mut self.draft.display_shortcut),
+                    ("Copy text from region", &mut self.draft.text_shortcut),
+                    ("New note", &mut self.draft.note_shortcut),
                 ] {
                     ui.label(label);
                     ui.add(egui::TextEdit::singleline(value).font(egui::TextStyle::Monospace));

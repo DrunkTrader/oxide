@@ -110,19 +110,23 @@ fn run() -> Result<()> {
 }
 
 fn icon() -> egui::IconData {
-    let mut rgba = vec![0_u8; 32 * 32 * 4];
-    for y in 0_i32..32 {
-        for x in 0_i32..32 {
-            let distance = (x - 16) * (x - 16) + (y - 16) * (y - 16);
-            if (70..=170).contains(&distance) {
-                let index = ((y * 32 + x) * 4) as usize;
-                rgba[index..index + 4].copy_from_slice(&[190, 110, 76, 255]);
+    // The brand mark ships inside the binary; a decode failure falls back to no icon.
+    let decoded = image::load_from_memory_with_format(
+        include_bytes!("../../../assets/icon.png"),
+        image::ImageFormat::Png,
+    );
+    match decoded {
+        Ok(image) => {
+            let image = image.into_rgba8();
+            egui::IconData {
+                width: image.width(),
+                height: image.height(),
+                rgba: image.into_raw(),
             }
         }
-    }
-    egui::IconData {
-        rgba,
-        width: 32,
-        height: 32,
+        Err(error) => {
+            log::warn!("Application icon: {error}");
+            egui::IconData::default()
+        }
     }
 }
