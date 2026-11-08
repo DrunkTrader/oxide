@@ -114,7 +114,7 @@ The installer (`dist/Oxide-Setup-<version>.exe`) installs per user, adds a Start
 6. Tag notes and screenshots. Tags appear in the sidebar. **Today** opens or creates a note titled with the current date.
 7. Export a note to Markdown with copied images and relative links. Notes go to a persistent note trash; images go to the recoverable system trash after confirmation.
 
-Markdown is accepted as text; there is no rich-text editor or rendered preview yet.
+Notes are written in Markdown. Switch the editor between **Edit** and **Preview** (Ctrl/Cmd+E) to see headings, lists, task lists, tables, quotes and code rendered; ticking a task-list checkbox in Preview updates the note. The preview never loads remote images.
 
 ### Shortcuts
 
@@ -128,6 +128,7 @@ Markdown is accepted as text; there is no rich-text editor or rendered preview y
 | Summon and start a new note | Alt+Shift+N |
 | New note | Ctrl+N / Cmd+N |
 | Save now | Ctrl+S / Cmd+S |
+| Edit / Preview Markdown | Ctrl+E / Cmd+E |
 | Search focus | Ctrl+K or Ctrl+F / Cmd+K or Cmd+F |
 | Close panel / hide | Escape |
 
@@ -234,7 +235,6 @@ See [CONTRIBUTING](docs/CONTRIBUTING.md) for conventions and [ARCHITECTURE](docs
 
 ## Not yet supported
 
-- Rendered Markdown preview
 - Encryption at rest
 - Multilingual OCR
 - Semantic search

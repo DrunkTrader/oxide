@@ -38,7 +38,7 @@ cargo run -p oxide-worker --locked -- --setup-models
 
 ## 3. Write a note
 
-Press **Ctrl+N** (or click **+ New note**). The title is selected, so just type, then click the body. Notes save automatically; watch for **Saved locally** in the status bar.
+Press **Ctrl+N** (or click **+ New note**). The title is selected, so just type, then click the body. Notes save automatically; watch for **Saved locally** in the status bar. Write in Markdown and press **Ctrl/Cmd+E** (or the Preview switch) to see it rendered.
 
 Add tags under the title: type a tag and press Enter. Click **Today** in the sidebar for a note named after today's date.
 

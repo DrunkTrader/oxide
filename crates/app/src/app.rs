@@ -112,6 +112,8 @@ pub struct App {
     confirmation: Option<Confirmation>,
     settings: bool,
     settings_tab: usize,
+    preview: bool,
+    md_cache: egui_commonmark::CommonMarkCache,
     trash_view: bool,
     library: bool,
     all_view: bool,
@@ -228,6 +230,8 @@ impl App {
             confirmation: None,
             settings: launch.onboarding,
             settings_tab: 0,
+            preview: false,
+            md_cache: egui_commonmark::CommonMarkCache::default(),
             trash_view: false,
             library: false,
             all_view: false,
@@ -1120,6 +1124,9 @@ impl eframe::App for App {
         }
         if context.input_mut(|input| input.consume_key(egui::Modifiers::COMMAND, egui::Key::N)) {
             self.new_note();
+        }
+        if context.input_mut(|input| input.consume_key(egui::Modifiers::COMMAND, egui::Key::E)) {
+            self.preview = !self.preview;
         }
         if context.input_mut(|input| input.consume_key(egui::Modifiers::COMMAND, egui::Key::S)) {
             self.save();
