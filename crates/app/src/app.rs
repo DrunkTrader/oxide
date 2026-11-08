@@ -1199,6 +1199,20 @@ impl eframe::App for App {
             });
         self.detail(&context);
         self.settings(&context);
+        if let Some(message) = self.notice.clone() {
+            let key = egui::Id::new("notice-shown");
+            let now = context.input(|i| i.time);
+            let start = context.data_mut(|d| {
+                let e = d.get_temp_mut_or_insert_with(key, || (message.clone(), now));
+                if e.0 != message {
+                    *e = (message.clone(), now);
+                }
+                e.1
+            });
+            if toast(&context, &message, (now - start) as f32) {
+                self.notice = None;
+            }
+        }
         self.confirm(&context);
     }
 }

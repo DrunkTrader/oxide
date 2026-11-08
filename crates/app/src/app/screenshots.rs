@@ -142,20 +142,34 @@ impl App {
             }
             return;
         }
-        caption(ui, format!("{} screenshots loaded", self.shots.len()));
+        caption(ui, format!("{} screenshots", self.shots.len()));
         ui.add_space(10.0);
-        let columns = (ui.available_width() / 246.0).floor().max(1.0) as usize;
+        // Equal tiles that fill the width: as many columns as fit at >= 240 px, then stretch.
+        let gap = 16.0;
+        let avail = ui.available_width() - 18.0; // room for the scrollbar
+        let columns = ((avail + gap) / (240.0 + gap)).floor().max(1.0) as usize;
+        let tile_w = ((avail - gap * (columns as f32 - 1.0)) / columns as f32).floor();
+        let thumb_h = (tile_w * 0.6).round();
+        let row_h = thumb_h + 20.0 + 58.0 + gap;
         let rows = self.shots.len().div_ceil(columns);
+        let view = (self.library, self.all_view, self.query_generation);
         egui::ScrollArea::vertical()
             .id_salt("screenshot-library")
-            .show_rows(ui, 218.0, rows, |ui, range| {
+            .auto_shrink([false, false])
+            .show_rows(ui, row_h, rows, |ui, range| {
                 for row in range {
-                    ui.horizontal(|ui| {
-                        ui.spacing_mut().item_spacing.x = 12.0;
+                    ui.horizontal_top(|ui| {
+                        ui.spacing_mut().item_spacing.x = gap;
                         for index in row * columns..((row + 1) * columns).min(self.shots.len()) {
-                            self.shot_tile(ui, &self.shots[index].clone());
+                            let shot = self.shots[index].clone();
+                            let a = stagger(ui, "tiles", view, index);
+                            ui.scope(|ui| {
+                                ui.multiply_opacity(a);
+                                self.shot_tile(ui, &shot, tile_w, thumb_h, (1.0 - a) * 14.0);
+                            });
                         }
                     });
+                    ui.add_space(gap - ui.spacing().item_spacing.y);
                 }
             });
         if self.shots.len() >= self.limit && quiet(ui, "Load more screenshots").clicked() {
@@ -163,84 +177,107 @@ impl App {
         }
     }
 
-    fn shot_tile(&mut self, ui: &mut egui::Ui, shot: &Screenshot) {
+    fn shot_tile(
+        &mut self,
+        ui: &mut egui::Ui,
+        shot: &Screenshot,
+        tile_w: f32,
+        thumb_h: f32,
+        rise: f32,
+    ) {
         let p = Palette::of(ui);
         hover_card(ui, egui::Id::new(("shot-card", shot.id)), |ui| {
-            ui.set_width(218.0);
-            ui.set_min_height(194.0);
-            if let Some((texture, size)) = self.picture(shot.id, false) {
-                let response = ui.add(
+            ui.vertical(|ui| {
+                let inner_w = tile_w - 20.0;
+                ui.set_width(inner_w);
+                ui.spacing_mut().interact_size.y = 20.0;
+                ui.spacing_mut().item_spacing.y = 4.0;
+                ui.add_space(rise);
+                // thumbnail, letterboxed inside a fixed frame so every tile lines up
+                let (frame, frame_response) =
+                    ui.allocate_exact_size(egui::vec2(inner_w, thumb_h), egui::Sense::click());
+                ui.painter().rect_filled(frame, 10.0, p.canvas);
+                if let Some((texture, size)) = self.picture(shot.id, false) {
+                    let scale = (frame.width() / size.x).min(frame.height() / size.y);
+                    let rect = egui::Rect::from_center_size(frame.center(), size * scale);
                     egui::Image::new((texture, size))
                         .corner_radius(8)
-                        .max_size(egui::vec2(218.0, 136.0))
-                        .sense(egui::Sense::click()),
-                );
-                if let Some(texture) = self.textures.get(&(shot.id, false))
-                    && let Ok(query) = Query::parse(&self.query)
-                {
-                    for line in &texture.lines {
-                        if query.matches_line(&line.text) {
-                            highlight(ui, line_rect(response.rect, line));
+                        .paint_at(ui, rect);
+                    if let Some(texture) = self.textures.get(&(shot.id, false))
+                        && let Ok(query) = Query::parse(&self.query)
+                    {
+                        for line in &texture.lines {
+                            if query.matches_line(&line.text) {
+                                highlight(ui, line_rect(rect, line));
+                            }
                         }
                     }
+                } else if self.image_errors.contains_key(&(shot.id, false)) {
+                    ui.painter().text(
+                        frame.center(),
+                        egui::Align2::CENTER_CENTER,
+                        "Image unavailable",
+                        egui::FontId::proportional(13.0),
+                        p.muted,
+                    );
+                } else {
+                    shimmer(ui, frame);
                 }
-                if response.clicked() {
+                if frame_response.clicked() {
                     self.select_shot(shot.id);
                 }
-            } else if ui
-                .add_sized(
-                    [218.0, 136.0],
-                    egui::Button::new(if self.image_errors.contains_key(&(shot.id, false)) {
-                        "Image unavailable"
-                    } else {
-                        "Loading…"
-                    }),
-                )
-                .clicked()
-            {
-                self.select_shot(shot.id);
-            }
-            ui.add_space(6.0);
-            ui.horizontal(|ui| {
-                let filename = Path::new(&shot.path)
-                    .file_name()
-                    .unwrap_or_default()
-                    .to_string_lossy();
-                ui.add(egui::Label::new(RichText::new(filename).size(12.0)).truncate());
-                let mut selected = self.selected_shots.contains(&shot.id);
-                if ui
-                    .checkbox(&mut selected, "")
-                    .on_hover_text("Select screenshot for trash")
-                    .changed()
-                {
-                    if selected {
-                        self.selected_shots.insert(shot.id);
-                    } else {
-                        self.selected_shots.remove(&shot.id);
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    let filename = Path::new(&shot.path)
+                        .file_name()
+                        .unwrap_or_default()
+                        .to_string_lossy();
+                    ui.allocate_ui_with_layout(
+                        egui::vec2(inner_w - 34.0, 20.0),
+                        egui::Layout::left_to_right(egui::Align::Center),
+                        |ui| {
+                            ui.add(
+                                egui::Label::new(RichText::new(filename).size(12.5).strong())
+                                    .truncate(),
+                            )
+                        },
+                    );
+                    let mut selected = self.selected_shots.contains(&shot.id);
+                    if ui
+                        .checkbox(&mut selected, "")
+                        .on_hover_text("Select for trash")
+                        .changed()
+                    {
+                        if selected {
+                            self.selected_shots.insert(shot.id);
+                        } else {
+                            self.selected_shots.remove(&shot.id);
+                        }
                     }
-                }
-            });
-            let state = if shot.available {
-                match shot.ocr_state.as_str() {
-                    "ready" => "Text indexed",
-                    "pending" => "OCR pending",
-                    "no_text" => "No text found",
-                    "failed" => "OCR failed",
-                    "invalid" => "Invalid image",
-                    other => other,
-                }
-            } else {
-                "Original unavailable"
-            };
-            ui.horizontal(|ui| {
-                let color = match shot.ocr_state.as_str() {
-                    _ if !shot.available => p.danger,
-                    "ready" => p.success,
-                    "failed" | "invalid" => p.danger,
-                    _ => p.muted,
+                });
+                let state = if shot.available {
+                    match shot.ocr_state.as_str() {
+                        "ready" => "Text indexed",
+                        "pending" => "Reading text…",
+                        "no_text" => "No text found",
+                        "failed" => "OCR failed",
+                        "invalid" => "Invalid image",
+                        other => other,
+                    }
+                } else {
+                    "Original unavailable"
                 };
-                status_dot(ui, color, shot.available && shot.ocr_state == "pending");
-                caption(ui, state);
+                ui.horizontal(|ui| {
+                    let color = match shot.ocr_state.as_str() {
+                        _ if !shot.available => p.danger,
+                        "ready" => p.success,
+                        "failed" | "invalid" => p.danger,
+                        _ => p.muted,
+                    };
+                    status_dot(ui, color, shot.available && shot.ocr_state == "pending");
+                    caption(ui, state);
+                });
+                ui.add_space(4.0 - rise.min(4.0));
             });
         });
     }

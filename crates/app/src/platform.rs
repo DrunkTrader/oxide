@@ -69,6 +69,20 @@ pub fn displays(window: &Window) -> Vec<Display> {
         .collect()
 }
 
+/// A child-process command that never opens a console window on Windows.
+/// Oxide is a GUI-subsystem app, so a console child (the reader, reg.exe) would otherwise get its own terminal.
+pub fn command(program: impl AsRef<std::ffi::OsStr>) -> std::process::Command {
+    #[allow(unused_mut)]
+    let mut command = std::process::Command::new(program);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+    command
+}
+
 pub fn exclusion_supported() -> bool {
     cfg!(windows)
 }
@@ -122,7 +136,7 @@ pub fn startup(enabled: bool, data: &Path) -> Result<()> {
     {
         let key = "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run";
         let output = if enabled {
-            std::process::Command::new("reg.exe")
+            command("reg.exe")
                 .args([
                     "add",
                     key,
@@ -140,7 +154,7 @@ pub fn startup(enabled: bool, data: &Path) -> Result<()> {
                 ])
                 .output()?
         } else {
-            std::process::Command::new("reg.exe")
+            command("reg.exe")
                 .args(["delete", key, "/v", "Oxide", "/f"])
                 .output()?
         };

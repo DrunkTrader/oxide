@@ -62,6 +62,7 @@ impl App {
                     });
                 }
             });
+        nav_indicator(ui, "notes");
         if let Some(id) = clicked {
             self.defer(AfterSave::Load(id));
         }

@@ -46,7 +46,7 @@ Oxide keeps your notes and screenshots together and makes the text inside every 
 
 **Desktop integration**
 - Configurable global shortcuts, a resident background instance, optional login startup, and a Windows tray icon
-- Light, dark or system theme
+- Light and dark themes (or follow the system), switchable from the header, with a violet accent from the Oxide logo
 
 ## Platform support
 
@@ -156,7 +156,7 @@ Semantic or approximate search is not part of this build.
 ### Capture privacy
 
 - **Capture source.** Each capture records the foreground app and window title (Windows and X11). The detail view shows it, and `app:` filters by it. Oxide's own window is never recorded as a source.
-- **Never capture.** Settings → General skips a capture while the active window's app or title contains a listed entry. Defaults cover common password managers and private-browsing windows. Wayland exposes no active window, so the list cannot match there.
+- **Never capture.** Settings → Privacy skips a capture while the active window's app or title contains a listed entry. Defaults cover common password managers and private-browsing windows. Wayland exposes no active window, so the list cannot match there.
 - **Redaction.** **Redact selected…** in the image detail view paints opaque black over the selected OCR lines. After confirmation it rewrites the original file in place, removes the text from search, and reads the image again. This changes the original image and cannot be undone.
 
 ### Recording exclusion (Windows)

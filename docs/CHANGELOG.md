@@ -2,7 +2,9 @@
 
 All notable changes to Oxide are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims to follow [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.1.0] - 2026-11-08
+
+First public release. It includes the development build below plus everything listed here.
 
 ### Added
 
@@ -19,10 +21,12 @@ All notable changes to Oxide are documented here. The format follows [Keep a Cha
 
 ### Changed
 
-- Redesigned interface:
-  - graphite palette with a copper accent and a refined type scale;
-  - motion for view changes, list selection, card hover and status;
-  - a modal confirmation dialog.
+- Redesigned interface in two themes (light and dark, or follow the system), with Apple-style neutrals and one violet accent from the Oxide logo:
+  - Light / Dark / Auto switch in the header and in Settings;
+  - pill search field with an animated focus ring;
+  - Settings as a centred sheet with a sliding tab bar and grouped rows (General, Privacy, Storage, Shortcuts, OCR);
+  - screenshot library as an aligned grid of equal tiles, with loading shimmer and staggered entrance;
+  - a selection indicator that slides between sidebar items, view transitions, card hover lift, notices as toasts that dismiss themselves, and a modal confirmation dialog.
 - New notes focus their title with the placeholder selected.
 - Sidebar actions stay pinned while the lists above them scroll.
 - Database schema 4 (tags and capture source). Existing databases are backed up before migration; migrated databases cannot be opened by older builds.
@@ -31,7 +35,10 @@ All notable changes to Oxide are documented here. The format follows [Keep a Cha
 ### Fixed
 
 - Recent notes with identical titles no longer cause widget ID clashes.
+- Windows: saving settings or restarting the reader no longer opens a console window that stays open (the reader and `reg.exe` now start without a console).
+- Settings: shortcut fields are full width and the scrollbar sits at the edge of the sheet.
+- Screenshot tiles no longer lay out the thumbnail, file name and status side by side.
 
-## [0.1.0]
+### Development build (before 0.1.0)
 
 Initial development build: notes with autosave and trash, screenshot capture and import, local OCR, literal full-text search with date and folder filters, Markdown export, global shortcuts, resident mode, and Windows recording exclusion.
