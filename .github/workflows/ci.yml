@@ -30,10 +30,18 @@ jobs:
         shell: bash
       - name: Linux GUI prerequisites
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y xvfb libxtst6 libxkbcommon0 libegl1 libgl1-mesa-dri ffmpeg x11-utils x11-xserver-utils
+        # winit and glow dlopen these at runtime, so the build succeeds without them but the app aborts at startup.
+        run: sudo apt-get update && sudo apt-get install -y xvfb libxtst6 libxkbcommon0 libxkbcommon-x11-0 libx11-xcb1 libxcursor1 libxi6 libegl1 libgl1 libglx-mesa0 libgl1-mesa-dri ffmpeg x11-utils x11-xserver-utils
       - name: Native GUI workflow
         if: runner.os == 'Linux'
         run: xvfb-run -a -s "-screen 0 1280x800x24" python3 tests/gui_smoke.py
+      - name: Upload GUI failure screenshot
+        if: failure() && runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: gui-failure
+          path: ${{ runner.temp }}/oxide-gui-failure.png
+          if-no-files-found: ignore
       - name: Windows GUI starts
         if: runner.os == 'Windows'
         run: |

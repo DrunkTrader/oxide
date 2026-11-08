@@ -304,7 +304,7 @@ mod tests {
         )?;
         let child = Paths::discover(Some(paths.data))?;
         assert_eq!(child.config, separate.config);
-        assert_eq!(child.cache, separate.cache);
+        assert_eq!(child.cache, fs::canonicalize(&separate.cache)?);
         Ok(())
     }
 }

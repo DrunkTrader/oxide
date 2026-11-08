@@ -247,7 +247,8 @@ mod tests {
         std::fs::create_dir(&nested)?;
         let alias = nested.join("..");
         let q = Query::parse(&folder_filter(&alias)?)?;
-        assert_eq!(q.folder.as_deref(), Some(root.path().to_str().unwrap()));
+        let expected = std::fs::canonicalize(root.path())?;
+        assert_eq!(q.folder.as_deref(), expected.to_str());
         Ok(())
     }
 
