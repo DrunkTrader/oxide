@@ -47,3 +47,15 @@ date,tag,platform,file,downloads
 2026-11-12,v0.1.0,"Any Linux (AppImage)",Oxide-0.1.0-x86_64.AppImage,1
 2026-11-12,v0.1.0,"Windows (installer)",Oxide-Setup-0.1.0.exe,3
 2026-11-12,v0.1.0,"Debian/Ubuntu (.deb)",oxide_0.1.0_amd64.deb,1
+2026-11-13,v0.1.1,"Fedora/RHEL/openSUSE (.rpm)",oxide-0.1.1-1.x86_64.rpm,1
+2026-11-13,v0.1.1,"Any Linux (tar.gz)",oxide-0.1.1-linux-x86_64.tar.gz,1
+2026-11-13,v0.1.1,"Windows (portable)",oxide-0.1.1-windows-x86_64.zip,1
+2026-11-13,v0.1.1,"Any Linux (AppImage)",Oxide-0.1.1-x86_64.AppImage,1
+2026-11-13,v0.1.1,"Windows (installer)",Oxide-Setup-0.1.1.exe,3
+2026-11-13,v0.1.1,"Debian/Ubuntu (.deb)",oxide_0.1.1_amd64.deb,1
+2026-11-13,v0.1.0,"Fedora/RHEL/openSUSE (.rpm)",oxide-0.1.0-1.x86_64.rpm,1
+2026-11-13,v0.1.0,"Any Linux (tar.gz)",oxide-0.1.0-linux-x86_64.tar.gz,1
+2026-11-13,v0.1.0,"Windows (portable)",oxide-0.1.0-windows-x86_64.zip,1
+2026-11-13,v0.1.0,"Any Linux (AppImage)",Oxide-0.1.0-x86_64.AppImage,1
+2026-11-13,v0.1.0,"Windows (installer)",Oxide-Setup-0.1.0.exe,3
+2026-11-13,v0.1.0,"Debian/Ubuntu (.deb)",oxide_0.1.0_amd64.deb,1
